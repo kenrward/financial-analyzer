@@ -5,6 +5,7 @@ import json
 import time
 import pandas as pd
 import google.generativeai as genai
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # --- Import configuration from config.py ---
 try:
@@ -16,20 +17,46 @@ except ValueError as e:
     print(f"Configuration Error: {e}")
     exit()
 
-def analyze_sentiment_with_gemini(model, headline, summary):
-    """
-    Analyzes a news headline and summary using the Gemini model.
+# --- Concurrency Configuration ---
+# Set the number of parallel workers. Be mindful of your API's rate limits.
+# A good starting point is between 10 and 30.
+MAX_WORKERS = 20
 
-    Args:
-        model: The initialized Gemini generative model.
-        headline (str): The news headline.
-        summary (str): The news summary.
+def get_unprocessed_articles(raw_articles, existing_results):
+    """
+    Filters out articles that have already been processed and saved.
 
     Returns:
-        tuple: A tuple containing the sentiment score (1, -1, 0) and the explanation text.
-               Returns (0, "Error in analysis") on failure.
+        list: A list of articles that still need to be analyzed.
     """
-    # Using a prompt inspired by the research paper for clear instructions
+    existing_ids = set()
+    # Create a unique identifier for each existing article
+    # Using title and publication date is a robust way to do this.
+    for article in existing_results:
+        unique_id = (article.get('title'), article.get('published_utc'))
+        existing_ids.add(unique_id)
+        
+    unprocessed = []
+    for article in raw_articles:
+        unique_id = (article.get('title'), article.get('published_utc'))
+        if unique_id not in existing_ids:
+            unprocessed.append(article)
+            
+    return unprocessed
+
+
+def analyze_single_article(model, article):
+    """
+    Analyzes a single news article with Gemini and returns the enriched article.
+    This function is designed to be called by a thread pool executor.
+    """
+    headline = article.get('title', '')
+    summary = article.get('summary', '')
+    
+    if not headline:
+        # If there's no headline, we can't analyze. Return the original article.
+        return article
+
     prompt = f"""
     Forget all your previous instructions. Pretend you are a financial expert. You are a financial expert with stock recommendation experience.
     Answer "YES" if the news is good, "NO" if the news is bad, or "UNKNOWN" if uncertain in the first line.
@@ -43,9 +70,6 @@ def analyze_sentiment_with_gemini(model, headline, summary):
 
     try:
         response = model.generate_content(prompt)
-        
-        # --- Parse the response ---
-        # Clean up the response text
         response_text = response.text.strip().upper()
         
         score = 0
@@ -54,79 +78,81 @@ def analyze_sentiment_with_gemini(model, headline, summary):
         lines = response_text.split('\n')
         first_line = lines[0].strip()
 
-        if "YES" in first_line:
-            score = 1
-        elif "NO" in first_line:
-            score = -1
+        if "YES" in first_line: score = 1
+        elif "NO" in first_line: score = -1
         
-        if len(lines) > 1:
-            explanation = lines[1].strip()
+        if len(lines) > 1: explanation = lines[1].strip()
 
-        return score, explanation
-
-    except Exception as e:
-        print(f"  > Gemini API Error: {e}")
-        return 0, "Error in analysis"
-
-def process_news_file(model, input_filepath, output_filepath):
-    """
-    Loads raw news, analyzes sentiment for each item, and saves the results.
-    """
-    try:
-        with open(input_filepath, 'r') as f:
-            raw_news_data = json.load(f)
-        print(f"Successfully loaded {len(raw_news_data)} news articles from {input_filepath}.")
-    except FileNotFoundError:
-        print(f"Error: Raw news file not found at {input_filepath}.")
-        print("Please run data_collection.py first.")
-        return
-
-    # --- For development: test with a small sample first! ---
-    # To run on all data, comment out the next line.
-    # raw_news_data = raw_news_data[:15] 
-    # print(f"--- RUNNING IN TEST MODE ON {len(raw_news_data)} ARTICLES ---")
-    # ---------------------------------------------------------
-
-    analyzed_results = []
-    total_articles = len(raw_news_data)
-
-    for i, article in enumerate(raw_news_data):
-        headline = article.get('title', '')
-        summary = article.get('summary', '')
-        ticker = article.get('ticker', 'N/A')
-        
-        print(f"Analyzing article {i+1}/{total_articles} for ticker: {ticker}...")
-        
-        if not headline:
-            print("  > Skipping article with no headline.")
-            continue
-
-        score, explanation = analyze_sentiment_with_gemini(model, headline, summary)
-        
-        # Add the new analysis to the original article data
+        # Add the analysis to the article dictionary
         article['gemini_score'] = score
         article['gemini_explanation'] = explanation
-        analyzed_results.append(article)
-        
-        print(f"  > Score: {score}, Explanation: {explanation}")
-        
-        # Be respectful of API rate limits
-        time.sleep(1) # Pause for 1 second between calls
+        return article
 
-    print(f"\nSaving {len(analyzed_results)} analyzed articles to {output_filepath}...")
-    with open(output_filepath, 'w') as f:
-        json.dump(analyzed_results, f, indent=4)
-    print("Sentiment analysis complete.")
+    except Exception as e:
+        print(f"  > Gemini API Error for '{headline[:30]}...': {e}")
+        article['gemini_score'] = 0
+        article['gemini_explanation'] = "Error in analysis"
+        return article
 
 
 if __name__ == "__main__":
     # Configure the Gemini client
     genai.configure(api_key=GEMINI_API_KEY)
-    # Using a recent, powerful model
     gemini_model = genai.GenerativeModel('gemini-1.5-pro-latest')
 
     # Define file paths
     raw_news_filepath = os.path.join(DATA_DIRECTORY, "sp500_raw_news.json")
     analyzed_news_filepath = os.path.join(DATA_DIRECTORY, "sp500_gemini_sentiment.json")
+
+    # --- Load Raw and Existing Data ---
+    try:
+        with open(raw_news_filepath, 'r') as f:
+            all_raw_articles = json.load(f)
+    except FileNotFoundError:
+        print(f"Error: Raw news file not found at {raw_news_filepath}. Run data_collection.py first.")
+        exit()
+
+    existing_analyzed_articles = []
+    if os.path.exists(analyzed_news_filepath):
+        with open(analyzed_news_filepath, 'r') as f:
+            existing_analyzed_articles = json.load(f)
+        print(f"Found {len(existing_analyzed_articles)} previously analyzed articles.")
+
+    # --- Caching Logic ---
+    articles_to_process = get_unprocessed_articles(all_raw_articles, existing_analyzed_articles)
     
-    process_news_file(gemini_model, raw_news_filepath, analyzed_news_filepath)
+    if not articles_to_process:
+        print("All articles have already been analyzed. Nothing to do.")
+        exit()
+        
+    print(f"Starting analysis on {len(articles_to_process)} new articles...")
+    
+    # List to hold all results, both old and new
+    final_results = existing_analyzed_articles
+    
+    # --- Parallel Processing ---
+    # Using ThreadPoolExecutor to make concurrent API calls
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        # Submit all analysis tasks to the executor
+        future_to_article = {executor.submit(analyze_single_article, gemini_model, article): article for article in articles_to_process}
+        
+        # Process results as they are completed
+        for i, future in enumerate(as_completed(future_to_article)):
+            try:
+                processed_article = future.result()
+                final_results.append(processed_article)
+                ticker = processed_article.get('ticker', 'N/A')
+                score = processed_article.get('gemini_score', 'N/A')
+                print(f"  ({i+1}/{len(articles_to_process)}) COMPLETED: Ticker {ticker}, Score: {score}")
+
+            except Exception as e:
+                print(f"An error occurred processing a future result: {e}")
+
+    # --- Save Final Combined Results ---
+    print(f"\nSaving a total of {len(final_results)} analyzed articles to {analyzed_news_filepath}...")
+    # Sort by ticker and date for consistency
+    final_results.sort(key=lambda x: (x.get('ticker'), x.get('published_utc')))
+    with open(analyzed_news_filepath, 'w') as f:
+        json.dump(final_results, f, indent=4)
+        
+    print("Sentiment analysis complete.")
