@@ -25,6 +25,12 @@ SELL_THRESHOLD = -0.4
 DATA_DIRECTORY = "data/"
 ARTICLE_LIMIT = 10
 
+# --- Screener Configuration ---
+# Set to True to run the screener, False to analyze the full index
+ENABLE_SCREENER = True
+MIN_OPTIONS_VOLUME = 50 #20000
+MIN_IMPLIED_VOLATILITY = 0 #0.70
+
 # --- Master Stock Universe Setting ---
 # Change this variable to switch between 'snp500' and 'qqq'
-STOCK_UNIVERSE = "qqq"  # Options: "snp500", "qqq"
+STOCK_UNIVERSE = "snp500"  # Options: "snp500", "qqq"

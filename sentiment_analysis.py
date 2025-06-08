@@ -11,7 +11,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # --- Import configuration from config.py ---
 try:
-    from config import GEMINI_API_KEY, DATA_DIRECTORY, STOCK_UNIVERSE
+    # ADDED ENABLE_SCREENER to the import
+    from config import GEMINI_API_KEY, DATA_DIRECTORY, STOCK_UNIVERSE, ENABLE_SCREENER
 except ImportError:
     print("Error: config.py not found or is missing variables.")
     exit()
@@ -20,7 +21,7 @@ except ValueError as e:
     exit()
 
 # --- Concurrency Configuration ---
-MAX_WORKERS = 10 # A safe number to avoid most rate limits
+MAX_WORKERS = 10
 
 def get_unprocessed_articles(raw_articles, existing_results):
     """Filters out articles that have already been processed and saved."""
@@ -74,21 +75,24 @@ if __name__ == "__main__":
     genai.configure(api_key=GEMINI_API_KEY)
     gemini_model = genai.GenerativeModel('gemini-1.5-pro-latest')
 
-    raw_news_filepath = os.path.join(DATA_DIRECTORY, f"{STOCK_UNIVERSE}_raw_news.json")
-    analyzed_news_filepath = os.path.join(DATA_DIRECTORY, f"{STOCK_UNIVERSE}_gemini_sentiment.json")
+    # --- MODIFIED: Dynamically set filenames based on screener status ---
+    file_suffix = "_screened" if ENABLE_SCREENER else ""
+    raw_news_filepath = os.path.join(DATA_DIRECTORY, f"{STOCK_UNIVERSE}{file_suffix}_raw_news.json")
+    analyzed_news_filepath = os.path.join(DATA_DIRECTORY, f"{STOCK_UNIVERSE}{file_suffix}_gemini_sentiment.json")
     
-    print(f"--- Starting Sentiment Analysis for: {STOCK_UNIVERSE.upper()} ---")
+    print(f"--- Starting Sentiment Analysis for: {STOCK_UNIVERSE.upper()}{file_suffix.replace('_', ' ').title()} ---")
+    print(f"Input file: {raw_news_filepath}")
 
     try:
         with open(raw_news_filepath, 'r') as f: all_raw_articles = json.load(f)
     except FileNotFoundError:
-        print(f"Error: Raw news file not found at {raw_news_filepath}. Run data_collection.py first.")
+        print(f"Error: Raw news file not found. Run data_collection.py with ENABLE_SCREENER={ENABLE_SCREENER} first.")
         exit()
 
     existing_analyzed_articles = []
     if os.path.exists(analyzed_news_filepath):
         with open(analyzed_news_filepath, 'r') as f: existing_analyzed_articles = json.load(f)
-        print(f"Found {len(existing_analyzed_articles)} previously analyzed articles.")
+        print(f"Found {len(existing_analyzed_articles)} previously analyzed articles in {analyzed_news_filepath}.")
 
     articles_to_process = get_unprocessed_articles(all_raw_articles, existing_analyzed_articles)
     
