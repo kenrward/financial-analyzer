@@ -1,0 +1,21 @@
+# requirements.txt
+
+# For data handling and numerical operations
+pandas
+numpy
+
+# For plotting the backtest results
+matplotlib
+
+# For loading API keys from the .env file
+python-dotenv
+
+# For fetching data from Polygon.io
+polygon-api-client
+
+# For the S&P 500 scraping (used by pandas)
+requests
+lxml
+
+# For sentiment analysis with Gemini
+google-generativeai
