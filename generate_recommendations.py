@@ -31,7 +31,7 @@ def generate_recommendations():
 
     # --- MODIFIED: Dynamically set filenames based on screener status ---
     file_suffix = "_screened" if ENABLE_SCREENER else ""
-    sentiment_filepath = os.path.join(DATA_DIRECTORY, f"{STOCK_UNIVERSE}{file_suffix}_gemini_sentiment.json")
+    sentiment_filepath = os.path.join(DATA_DIRECTORY, f"{STOCK_UNIVERSE}{file_suffix}_raw_news.json")
     
     # --- Load the final sentiment data ---
     try:
@@ -52,7 +52,7 @@ def generate_recommendations():
         return
 
     # --- Calculate average sentiment score for each ticker ---
-    avg_scores = df.groupby('ticker')['gemini_score'].mean()
+    avg_scores = df.groupby('ticker')['polygon_sentiment_score'].mean()
     
     print(f"\n--- Recommendations based on Average Sentiment ---")
     print(f"(Buy >= {BUY_THRESHOLD}, Sell <= {SELL_THRESHOLD})\n")

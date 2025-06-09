@@ -17,5 +17,6 @@ polygon-api-client
 requests
 lxml
 
-# For sentiment analysis with Gemini
+# For sentiment analysis with Gemini, DeepSeek
 google-generativeai
+openai

@@ -34,28 +34,27 @@ def prepare_price_data(price_filepath):
 
 def prepare_sentiment_data(sentiment_filepath):
     """
-    Loads sentiment data and groups signals by date.
-    Returns a dictionary: {date -> [{'ticker': ticker, 'score': score}]}
+    Loads sentiment data (now from Polygon.io) and groups signals by date.
     """
     try:
         with open(sentiment_filepath, 'r') as f:
+            # The input file is now the raw news file with sentiment included
             sentiment_data = json.load(f)
         print(f"Loaded sentiment data from: {sentiment_filepath}")
         
         signals_by_date = {}
         for article in sentiment_data:
-            # The backtest trades on the date the news was published (UTC).
-            # This simulates acting on overnight news at the next market open.
             trade_date = datetime.fromisoformat(article['published_utc'].replace('Z', '+00:00')).strftime('%Y-%m-%d')
             
             if trade_date not in signals_by_date:
                 signals_by_date[trade_date] = []
             
-            # Only consider 'Buy' (1) or 'Sell' (-1) signals
-            if article.get('gemini_score') in [1, -1]:
+            # --- MODIFIED: Use the polygon_sentiment_score ---
+            score = article.get('polygon_sentiment_score', 0)
+            if score in [1, -1]: # Only consider 'Buy' or 'Sell' signals
                 signals_by_date[trade_date].append({
                     'ticker': article['ticker'],
-                    'score': article['gemini_score']
+                    'score': score
                 })
         return signals_by_date
         

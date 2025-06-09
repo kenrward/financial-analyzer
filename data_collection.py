@@ -12,7 +12,8 @@ import json
 try:
     from config import (
         POLYGON_API_KEY, DATA_DIRECTORY, STOCK_UNIVERSE,
-        ENABLE_SCREENER, MIN_OPTIONS_VOLUME, MIN_IMPLIED_VOLATILITY
+        ENABLE_SCREENER, MIN_OPTIONS_VOLUME, MIN_IMPLIED_VOLATILITY,
+        REQUIRE_RECENT_NEWS
     )
 except ImportError:
     print("Error: config.py not found or is missing variables.")
@@ -48,6 +49,8 @@ def get_qqq_tickers():
 
 
 
+# In data_collection.py, replace the screen_tickers function
+
 def screen_tickers(client, initial_tickers):
     """
     Scans an initial list of tickers and filters them based on options activity and news.
@@ -60,15 +63,12 @@ def screen_tickers(client, initial_tickers):
     for i, ticker in enumerate(initial_tickers):
         print(f"  ({i+1}/{len(initial_tickers)}) Analyzing {ticker}...")
         try:
-            # --- Step 1: Get a reliable underlying price first ---
+            # Step 1: Get a reliable underlying price
             underlying_price = None
             stock_snapshot_url = f"{base_url}/v2/snapshot/locale/us/markets/stocks/tickers/{ticker}?apiKey={POLYGON_API_KEY}"
-            
             stock_response = requests.get(stock_snapshot_url)
             if stock_response.status_code == 200:
                 stock_data = stock_response.json()
-                # --- CORRECTED LOGIC ---
-                # Use the previous day's close ('c') for a more stable price reference.
                 if stock_data.get('ticker') and stock_data['ticker'].get('prevDay'):
                     underlying_price = stock_data['ticker']['prevDay'].get('c')
 
@@ -78,7 +78,7 @@ def screen_tickers(client, initial_tickers):
             
             print(f"    > Underlying price: {underlying_price}")
 
-            # --- Step 2: Get Options data ---
+            # Step 2: Get Options data
             options_url = f"{base_url}/v3/snapshot/options/{ticker}?apiKey={POLYGON_API_KEY}"
             options_response = requests.get(options_url)
             
@@ -96,33 +96,39 @@ def screen_tickers(client, initial_tickers):
             for contract in options_data["results"]:
                 total_volume += contract.get("day", {}).get("volume", 0)
                 strike_price = contract.get("details", {}).get("strike_price")
-                
-                if abs(strike_price - underlying_price) / underlying_price < 0.10: # Within 10%
+                if abs(strike_price - underlying_price) / underlying_price < 0.10:
                     iv = contract.get("implied_volatility", 0)
                     if iv > MIN_IMPLIED_VOLATILITY:
                         high_iv_found = True
             
             print(f"    > Options Volume: {total_volume}, High IV Found: {high_iv_found}")
 
-            # Step 3: Check criteria
+            # Step 3: Check criteria with corrected logic
             if total_volume > MIN_OPTIONS_VOLUME and high_iv_found:
-                print(f"    > {ticker} meets Volume/IV criteria. Checking for recent news...")
+                print(f"    > {ticker} meets Volume/IV criteria.")
                 
-                one_week_ago = (date.today() - timedelta(days=7)).strftime('%Y-%m-%d')
-                news = client.list_ticker_news(ticker, published_utc_gte=one_week_ago, limit=1)
-                has_catalyst = any(news)
-
-                if has_catalyst:
-                    print(f"    *** {ticker} is a HOT TICKER! Adding to list. ***")
+                # --- CORRECTED LOGIC BLOCK ---
+                if not REQUIRE_RECENT_NEWS:
+                    print(f"    *** {ticker} is a HOT TICKER! (News not required) ***")
                     hot_list.append(ticker)
                 else:
-                    print(f"    > No recent news found for {ticker}.")
+                    # This block now only runs if news is required
+                    print("    > Checking for recent news...")
+                    one_week_ago = (date.today() - timedelta(days=7)).strftime('%Y-%m-%d')
+                    news = client.list_ticker_news(ticker, published_utc_gte=one_week_ago, limit=1)
+                    has_catalyst = any(news)
+
+                    if has_catalyst:
+                        print(f"    *** {ticker} is a HOT TICKER! Adding to list. ***")
+                        hot_list.append(ticker)
+                    else:
+                        print(f"    > No recent news found for {ticker}.")
             else:
                 print(f"    > {ticker} does not meet screening criteria.")
 
         except Exception as e:
             print(f"    > An unexpected error occurred while screening {ticker}: {e}")
-        
+            
     print(f"\nScreening complete. Found {len(hot_list)} hot tickers.")
     return hot_list
 
@@ -144,23 +150,48 @@ def fetch_price_data(client, tickers, start_date, end_date):
     return all_price_data
 
 def fetch_news_data(client, tickers):
-    """Fetches news articles for a list of tickers from Polygon.io."""
+    """
+    Fetches news articles for a list of tickers from Polygon.io,
+    now including the sentiment data from the 'insights' field.
+    """
     all_news_data = []
-    print(f"\nFetching news data for {len(tickers)} tickers...")
+    print(f"\nFetching news data (with sentiment) for {len(tickers)} tickers...")
+
     for i, ticker in enumerate(tickers):
         try:
-            news_items = client.list_ticker_news(ticker, limit=25)
+            # list_ticker_news will return the full news object, including insights
+            news_items = client.list_ticker_news(ticker, limit=25) 
+            
             for news in news_items:
+                # Extract sentiment from the insights array, if it exists
+                sentiment_score = 0 # Default to neutral
+                sentiment_reasoning = ""
+                if news.insights:
+                    # An article can have insights on multiple tickers, we'll take the first one.
+                    insight = news.insights[0]
+                    if insight.sentiment == "positive":
+                        sentiment_score = 1
+                    elif insight.sentiment == "negative":
+                        sentiment_score = -1
+                    
+                    sentiment_reasoning = insight.sentiment_reasoning
+
                 all_news_data.append({
                     "ticker": ticker,
                     "published_utc": news.published_utc,
                     "title": news.title,
-                    "summary": getattr(news, 'description', 'No summary available.')
+                    "summary": getattr(news, 'description', 'No summary available.'),
+                    "polygon_sentiment_score": sentiment_score,
+                    "polygon_sentiment_reasoning": sentiment_reasoning
                 })
+            
             print(f"  ({i+1}/{len(tickers)}) Fetched news for {ticker}")
+
         except Exception as e:
             print(f"  ({i+1}/{len(tickers)}) Could not fetch news data for {ticker}: {e}")
+        
         time.sleep(0.5)
+        
     return all_news_data
 
 if __name__ == "__main__":
@@ -212,3 +243,8 @@ if __name__ == "__main__":
         print("\nNo tickers to process after screening.")
     
     print("\nData collection complete.")
+    if final_tickers:
+        print(f"\nProcess finished successfully for {len(final_tickers)} tickers.")
+        print(f"Created files: {price_filepath} and {news_filepath}")
+    else:
+        print("\nProcess finished. No tickers were selected for data collection.")
