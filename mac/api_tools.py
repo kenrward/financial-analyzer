@@ -1,6 +1,6 @@
 import httpx
 from langchain.tools import Tool
-from langchain_core.tools import create_structured_tool # Corrected import for create_structured_tool
+from langchain_core.tools import create_structured_tool # This is the correct import for create_structured_tool
 import json
 from datetime import date, timedelta
 from pydantic import BaseModel, Field
