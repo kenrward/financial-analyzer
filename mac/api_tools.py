@@ -1,7 +1,8 @@
 import httpx
-from langchain.tools import Tool # Import Tool class directly
+from langchain.tools import Tool
 import json
 from datetime import date, timedelta
+from pydantic import BaseModel, Field # <--- ADD THIS LINE
 
 # --- Configuration ---
 DATA_API_BASE_URL = "https://tda.kewar.org"
@@ -9,14 +10,16 @@ TA_API_BASE_URL = "https://tta.kewar.org"
 http_client = httpx.Client(verify=False)
 
 def _make_api_call(url: str, method: str = "GET", params: dict = None, json_data: dict = None):
+    """Helper to make HTTP calls and handle basic errors."""
     try:
         if method == "GET":
             response = http_client.get(url, params=params, timeout=30)
         elif method == "POST":
-            response = http_client.post(url, json=json_data, timeout=60)
+            response = http_client.post(url, json=json_data, timeout=60) # Increased timeout for TA
         else:
             raise ValueError(f"Unsupported HTTP method: {method}")
-        response.raise_for_status()
+
+        response.raise_for_status() # Raises HTTPStatusError for bad responses (4xx or 5xx)
         return response.json()
     except httpx.HTTPStatusError as e:
         print(f"HTTP error occurred: {e.response.status_code} - {e.response.text}")
@@ -32,6 +35,7 @@ def _make_api_call(url: str, method: str = "GET", params: dict = None, json_data
         return {"error": f"An unexpected error occurred: {e}"}
 
 # --- Raw functions (not decorated yet) ---
+# These remain unchanged, as they define the underlying logic
 def _get_most_active_stocks(limit: int = 100) -> str:
     url = f"{DATA_API_BASE_URL}/most-active-stocks"
     params = {"limit": limit}
@@ -59,19 +63,37 @@ def _analyze_technical_patterns(ticker: str, historical_data_json: str) -> str:
     response = _make_api_call(url, method="POST", json_data=data_payload)
     return json.dumps(response)
 
+# --- Pydantic Schemas for Tool Inputs ---
+class GetMostActiveStocksInput(BaseModel):
+    limit: int = Field(100, description="The number of top stocks to retrieve.")
+
+class GetHistoricalDataInput(BaseModel):
+    ticker: str = Field(..., description="The stock ticker symbol (e.g., AAPL).")
+    days: int = Field(90, description="The number of historical days to look back.")
+
+class GetNewsForTickerInput(BaseModel):
+    ticker: str = Field(..., description="The stock ticker symbol (e.g., NVDA).")
+    days: int = Field(7, description="The number of recent days to look back for news.")
+
+class AnalyzeTechnicalPatternsInput(BaseModel):
+    ticker: str = Field(..., description="The stock ticker symbol (e.g., MSFT).")
+    historical_data_json: str = Field(
+        ...,
+        description="Historical OHLCV data as a JSON string, expected to contain 'ticker' and 'data' keys."
+    )
+
 # --- LangChain Tool Instances ---
-# We define the tools by explicitly creating Tool instances.
-# The functions passed to Tool are the _raw_ functions without @tool decorator.
+# We define the tools by explicitly creating Tool instances with args_schema.
+# The functions passed to Tool are the _raw_ functions.
 get_most_active_stocks_tool = Tool(
     name="get_most_active_stocks",
     description="""
     Fetches a list of the most active stocks by trading volume for the previous trading day.
     Use this tool to identify stocks with high liquidity and interest.
-    Input is an integer `limit` for the number of top stocks to retrieve (default is 100).
     Returns a JSON string of a list of stock tickers and their daily summary.
-    Example: '[{"ticker": "NVDA", "volume": 172017167.0, ...}, {"ticker": "AAPL", ...}]'
     """,
-    func=_get_most_active_stocks # Pass the raw function
+    func=_get_most_active_stocks,
+    args_schema=GetMostActiveStocksInput # <--- ADD THIS LINE
 )
 
 get_historical_data_tool = Tool(
@@ -79,11 +101,10 @@ get_historical_data_tool = Tool(
     description="""
     Retrieves historical daily OHLCV (Open, High, Low, Close, Volume) data for a given stock ticker.
     Use this to get data needed for technical analysis.
-    Input is the stock ticker symbol (e.g., "AAPL") and optionally the number of historical days.
     Returns a JSON string of historical data.
-    Example: '{"ticker": "AAPL", "data": [{"date": "2025-06-20", "open": 150.0, ...}, ...]}'
     """,
-    func=_get_historical_data
+    func=_get_historical_data,
+    args_schema=GetHistoricalDataInput # <--- ADD THIS LINE
 )
 
 get_news_for_ticker_tool = Tool(
@@ -91,11 +112,10 @@ get_news_for_ticker_tool = Tool(
     description="""
     Fetches recent news articles for a given stock ticker.
     Use this to gather qualitative information and sentiment for a stock.
-    Input is the stock ticker symbol (e.g., "NVDA") and optionally the number of recent days to look back.
     Returns a JSON string of news articles.
-    Example: '{"ticker": "NVDA", "news": [{"title": "NVIDIA stock up", "publisher": "Reuters", ...}, ...]}'
     """,
-    func=_get_news_for_ticker
+    func=_get_news_for_ticker,
+    args_schema=GetNewsForTickerInput # <--- ADD THIS LINE
 )
 
 analyze_technical_patterns_tool = Tool(
@@ -104,14 +124,10 @@ analyze_technical_patterns_tool = Tool(
     Sends historical OHLCV data for a stock to the Technical Analysis API
     to identify common technical indicators (RSI, MACD, SMAs) and simple patterns
     like SMA crossovers.
-    Input requires the stock ticker symbol (e.g., "MSFT") and the historical OHLCV data
-    as a JSON string (e.g., from get_historical_data tool's output).
-    The historical_data_json should contain a 'ticker' key and a 'data' key
-    where 'data' is a list of dictionaries with 'date', 'open', 'high', 'low', 'close', 'volume'.
     Returns a JSON string of the analysis results, including indicators and detected patterns.
-    Example: '{"ticker": "MSFT", "patterns": ["SMA Crossover: ..."], "indicators": {"RSI": 65.2, ...}}'
     """,
-    func=_analyze_technical_patterns
+    func=_analyze_technical_patterns,
+    args_schema=AnalyzeTechnicalPatternsInput # <--- ADD THIS LINE
 )
 
 # We provide a list of tool objects that the agent can use
@@ -129,7 +145,7 @@ def test_tools():
     print(f"TA API URL: {TA_API_BASE_URL}")
 
     print("\n--- Testing get_most_active_stocks_tool (limit=5) ---")
-    # Call the invoke method on the Tool object
+    # Call the invoke method on the Tool object, passing args as a dict
     active_stocks_response = get_most_active_stocks_tool.invoke({"limit": 5})
     print(active_stocks_response)
 
