@@ -135,7 +135,7 @@ def get_news_for_ticker(ticker):
     try:
         news_articles = []
         # list_reference_news returns an iterator
-        for article in client.list_news(
+        for article in client.list_ticker_news(
             ticker=ticker.upper(),
             published_utc_gte=from_date.strftime('%Y-%m-%d'),
             published_utc_lte=to_date.strftime('%Y-%m-%d'),
