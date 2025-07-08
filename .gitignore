@@ -2,6 +2,7 @@
 
 # Ignore environment variables file
 .env
+.venv
 
 # Ignore python cache
 __pycache__/
