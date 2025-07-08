@@ -1,7 +1,8 @@
 import os
-from datetime import date, timedelta
+from datetime import datetime, timedelta
+
+import requests
 from flask import Flask, jsonify, request
-from polygon import RESTClient
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -16,13 +17,31 @@ POLYGON_API_KEY = os.getenv("POLYGON_API_KEY")
 if not POLYGON_API_KEY:
     raise ValueError("POLYGON_API_KEY environment variable not set.")
 
-# Initialize Polygon REST Client
-client = RESTClient(api_key=POLYGON_API_KEY)
+BASE_URL = "https://api.polygon.io"
 
-@app.route('/health', methods=['GET'])
-def health_check():
-    """Simple health check endpoint."""
-    return jsonify({"status": "healthy", "service": "data-api"}), 200
+
+def fetch_data_from_polygon(endpoint, params=None):
+    """
+    Helper function to fetch data from Polygon.io with error handling.
+
+    Args:
+        endpoint (str): The endpoint URL (without the base URL).
+        params (dict, optional): Query parameters for the request. Defaults to None.
+
+    Returns:
+        tuple: (JSON response, status code).  Returns (None, status_code) on error.
+    """
+    url = f"{BASE_URL}{endpoint}"
+    try:
+        response = requests.get(url, params={'apiKey': POLYGON_API_KEY, **(params or {})})
+        response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+        return response.json(), response.status_code
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching data from Polygon: {e}")
+        # Log the error for debugging purposes in a production environment.
+        # Consider using a logging library like `logging`.
+        return None, getattr(e.response, 'status_code', 500)  # Return status code if available, else 500
+
 
 @app.route('/most-active-stocks', methods=['GET'])
 def get_most_active_stocks():
@@ -31,80 +50,31 @@ def get_most_active_stocks():
     in time until an active trading day with data is found.
     Default N is 100.
     """
-    top_n = request.args.get('limit', default=100, type=int)
-    
-    # Start looking from the very first day we might need to check.
-    # Today's market data is not available until end of day, so start from yesterday.
-    current_date_to_check = date.today() - timedelta(days=1)
-    
-    found_active_day = False
-    lookback_attempts = 0
-    max_calendar_days_to_check = 15 # Look back up to 15 calendar days to find an active trading day
+    n = int(request.args.get('n', 100))  # Get 'n' from query parameters, default to 100
 
-    active_stocks = []
-    final_date_str = None
+    today = datetime.now().date()
+    attempt_date = today
+    data = None
+    status_code = 500  # Initialize with a default error status
 
-    # Loop until an active trading day with data is found or max lookback reached
-    while not found_active_day and lookback_attempts < max_calendar_days_to_check:
-        # Skip weekends (Saturday=5, Sunday=6) before trying to fetch data for this date
-        while current_date_to_check.weekday() >= 5:
-            current_date_to_check -= timedelta(days=1)
-        
-        target_date_str = current_date_to_check.strftime('%Y-%m-%d')
-        app.logger.info(f"Attempting to fetch data for {target_date_str} (Attempt: {lookback_attempts + 1}/{max_calendar_days_to_check})")
+    for i in range(7):  # Try up to 7 days back to find an active trading day
+        date_str = attempt_date.strftime('%Y-%m-%d')
+        endpoint = f"/v2/aggs/grouped/locale/US/market/STOCKS/{date_str}"
+        response, status_code = fetch_data_from_polygon(endpoint)
 
-        try:
-            resp = client.get_grouped_daily_aggs(
-                date=target_date_str,
-                adjusted=True
-            )
+        if response and response.get('results'):
+            # Sort by volume and take the top N
+            data = sorted(response['results'], key=lambda x: x['v'], reverse=True)[:n]
+            status_code = 200
+            break  # Exit the loop if data is found
+        else:
+            attempt_date -= timedelta(days=1)  # Go back one day
 
-            if resp: # If resp is not an empty list, it means data was found
-                # Filter out OTC and sort by volume
-                temp_active_stocks = sorted(
-                    [s for s in resp if not getattr(s, 'otc', False)], # Corrected: getattr(s, 'otc', False)
-                    key=lambda x: x.v, # Corrected attribute access: stock.v
-                    reverse=True
-                )[:top_n]
-                
-                if temp_active_stocks: # Ensure there are actual stocks after filtering (e.g., not just OTC)
-                    active_stocks = temp_active_stocks
-                    final_date_str = target_date_str
-                    found_active_day = True
-                    app.logger.info(f"Successfully found active stocks for {final_date_str}.")
-                else:
-                    app.logger.info(f"No non-OTC active stocks found for {target_date_str}. Decrementing date.")
-            else: # resp was an empty list (no data for that trading day, e.g., a holiday)
-                app.logger.info(f"Polygon.io returned no data for {target_date_str}. Decrementing date.")
+    if data:
+        return jsonify({"results": data, "date": attempt_date.strftime('%Y-%m-%d')}), status_code
+    else:
+        return jsonify({"error": "Could not retrieve most active stocks after 7 attempts.", "date": today.strftime('%Y-%m-%d')}), status_code
 
-        except Exception as e:
-            # Log API errors but continue trying previous days
-            app.logger.warning(f"API error fetching data for {target_date_str}: {e}. Decrementing date.")
-        
-        # For the next iteration, move to the previous calendar day
-        if not found_active_day: # Only decrement if we haven't found data yet
-            current_date_to_check -= timedelta(days=1)
-        
-        lookback_attempts += 1 # Increment attempt counter
-        
-
-    if not active_stocks:
-        return jsonify({"message": f"No active stocks found after looking back {max_calendar_days_to_check} calendar days.", "stocks": []}), 404
-
-    # Format the output using the correct single-letter attributes
-    formatted_stocks = [
-        {
-            "ticker": stock.T, # Corrected attribute access: stock.T
-            "volume": stock.v, # Corrected attribute access: stock.v
-            "close_price": stock.c, # Corrected attribute access: stock.c
-            "open_price": stock.o, # Corrected attribute access: stock.o
-            "high_price": stock.h, # Corrected attribute access: stock.h
-            "low_price": stock.l, # Corrected attribute access: stock.l
-            "date": final_date_str # Use the date of the day we found data for
-        }
-        for stock in active_stocks
-    ]
-    return jsonify({"date": final_date_str, "top_stocks": formatted_stocks}), 200
 
 @app.route('/historical-data/<ticker>', methods=['GET'])
 def get_historical_data(ticker):
@@ -112,41 +82,22 @@ def get_historical_data(ticker):
     Fetches historical daily OHLCV data for a given ticker.
     Defaults to the last 90 days.
     """
-    days = request.args.get('days', default=90, type=int)
-    
-    to_date = date.today()
+    days = int(request.args.get('days', 90))  # Get 'days' from query parameters, default to 90
+    to_date = datetime.now().date()
     from_date = to_date - timedelta(days=days)
 
-    try:
-        aggs = []
-        # list_aggs returns an iterator, so we collect all results
-        for a in client.list_aggs(
-            ticker=ticker.upper(),
-            multiplier=1,
-            timespan="day",
-            from_=from_date.strftime('%Y-%m-%d'),
-            to=to_date.strftime('%Y-%m-%d'),
-            adjusted=True,
-            sort="asc",
-            limit=50000 # Max limit to ensure we get all data in range
-        ):
-            aggs.append({
-                "date": date.fromtimestamp(a.t / 1000).strftime('%Y-%m-%d'), # Corrected: a.t
-                "open": a.o,       # Corrected: a.o
-                "high": a.h,       # Corrected: a.h
-                "low": a.l,         # Corrected: a.l
-                "close": a.c,     # Corrected: a.c
-                "volume": a.v    # Corrected: a.v
-            })
-        
-        if not aggs:
-            return jsonify({"message": f"No historical data found for {ticker} for the last {days} days."}), 404
+    to_date_str = to_date.strftime('%Y-%m-%d')
+    from_date_str = from_date.strftime('%Y-%m-%d')
 
-        return jsonify({"ticker": ticker.upper(), "data": aggs}), 200
+    endpoint = f"/v2/aggs/ticker/{ticker}/range/1/day/{from_date_str}/{to_date_str}"
+    response, status_code = fetch_data_from_polygon(endpoint)
 
-    except Exception as e:
-        app.logger.error(f"Error in get_historical_data for {ticker}: {e}", exc_info=True)
-        return jsonify({"error": str(e), "message": f"Failed to retrieve historical data for {ticker}."}), 500
+    if response and response.get('results'):
+        return jsonify(response), status_code
+    else:
+        error_message = response.get('error') if response else "Failed to retrieve historical data."
+        return jsonify({"error": error_message, "ticker": ticker}), status_code
+
 
 @app.route('/news/<ticker>', methods=['GET'])
 def get_news_for_ticker(ticker):
@@ -154,41 +105,36 @@ def get_news_for_ticker(ticker):
     Fetches recent news articles for a given ticker.
     Defaults to the last 7 days.
     """
-    days = request.args.get('days', default=7, type=int)
-
-    to_date = date.today()
+    days = int(request.args.get('days', 7))  # Get 'days' from query parameters, default to 7
+    to_date = datetime.now().date()
     from_date = to_date - timedelta(days=days)
 
-    try:
-        news_articles = []
-        # list_reference_news returns an iterator
-        for article in client.list_reference_news(
-            ticker=ticker.upper(),
-            published_utc_gte=from_date.strftime('%Y-%m-%d'),
-            published_utc_lte=to_date.strftime('%Y-%m-%d'),
-            limit=50 # Max 50 articles for a concise response
-        ):
-            # These attributes appear to be stable based on docs and common usage
-            news_articles.append({
-                "title": article.title,
-                "publisher": article.publisher.name if article.publisher else "N/A",
-                "url": article.article_url,
-                "published_utc": article.published_utc,
-                "description": article.description
-            })
-        
-        if not news_articles:
-            return jsonify({"message": f"No recent news found for {ticker} in the last {days} days."}), 404
+    to_date_str = to_date.strftime('%Y-%m-%d')
+    from_date_str = from_date.strftime('%Y-%m-%d')
 
-        return jsonify({"ticker": ticker.upper(), "news": news_articles}), 200
+    endpoint = "/v2/reference/news"
+    params = {
+        "ticker": ticker,
+        "published_utc.gte": from_date_str,
+        "published_utc.lte": to_date_str,
+        "order": "published_utc",
+        "sort": "desc"
+    }
 
-    except Exception as e:
-        app.logger.error(f"Error in get_news_for_ticker for {ticker}: {e}", exc_info=True)
-        return jsonify({"error": str(e), "message": f"Failed to retrieve news for {ticker}."}), 500
+    response, status_code = fetch_data_from_polygon(endpoint, params)
+
+    if response and response.get('results'):
+        return jsonify(response), status_code
+    else:
+        error_message = response.get('error') if response else "Failed to retrieve news."
+        return jsonify({"error": error_message, "ticker": ticker}), status_code
+
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Simple health check endpoint."""
+    return jsonify({"status": "healthy", "service": "data-api"}), 200
 
 
 if __name__ == '__main__':
-    # When running with `python3 data_api.py`, Flask's default development server is used.
-    # For production, use a WSGI server like Gunicorn or uWSGI (e.g., install gunicorn: pip install gunicorn)
-    # Then run with: gunicorn --bind 0.0.0.0:5000 data_api:app
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    app.run(debug=True, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
