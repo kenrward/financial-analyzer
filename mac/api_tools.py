@@ -85,7 +85,7 @@ class AnalyzeTechnicalPatternsInput(BaseModel):
 # --- LangChain Tool Instances ---
 # We define the tools by explicitly creating Tool instances with args_schema.
 # The functions passed to Tool are the _raw_ functions.
-get_most_active_stocks_tool = create_structured_tool( # CHANGE HERE
+get_most_active_stocks_tool = StructuredTool( # CHANGE HERE
     name="get_most_active_stocks",
     description="""
     Fetches a list of the most active stocks by trading volume for the previous trading day.
@@ -96,7 +96,7 @@ get_most_active_stocks_tool = create_structured_tool( # CHANGE HERE
     args_schema=GetMostActiveStocksInput
 )
 
-get_historical_data_tool = create_structured_tool( # CHANGE HERE
+get_historical_data_tool = StructuredTool( # CHANGE HERE
     name="get_historical_data",
     description="""
     Retrieves historical daily OHLCV (Open, High, Low, Close, Volume) data for a given stock ticker.
@@ -107,7 +107,7 @@ get_historical_data_tool = create_structured_tool( # CHANGE HERE
     args_schema=GetHistoricalDataInput
 )
 
-get_news_for_ticker_tool = create_structured_tool( # CHANGE HERE
+get_news_for_ticker_tool = StructuredTool( # CHANGE HERE
     name="get_news_for_ticker",
     description="""
     Fetches recent news articles for a given stock ticker.
@@ -118,7 +118,7 @@ get_news_for_ticker_tool = create_structured_tool( # CHANGE HERE
     args_schema=GetNewsForTickerInput
 )
 
-analyze_technical_patterns_tool = create_structured_tool( # CHANGE HERE
+analyze_technical_patterns_tool = StructuredTool( # CHANGE HERE
     name="analyze_technical_patterns",
     description="""
     Sends historical OHLCV data for a stock to the Technical Analysis API
