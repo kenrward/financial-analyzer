@@ -32,11 +32,11 @@ def get_most_active_stocks():
     Default N is 100.
     """
     top_n = request.args.get('limit', default=100, type=int)
-
+    
     # Start looking from the very first day we might need to check.
     # Today's market data is not available until end of day, so start from yesterday.
     current_date_to_check = date.today() - timedelta(days=1)
-
+    
     found_active_day = False
     lookback_attempts = 0
     max_calendar_days_to_check = 15 # Look back up to 15 calendar days to find an active trading day
@@ -49,7 +49,7 @@ def get_most_active_stocks():
         # Skip weekends (Saturday=5, Sunday=6) before trying to fetch data for this date
         while current_date_to_check.weekday() >= 5:
             current_date_to_check -= timedelta(days=1)
-
+        
         target_date_str = current_date_to_check.strftime('%Y-%m-%d')
         app.logger.info(f"Attempting to fetch data for {target_date_str} (Attempt: {lookback_attempts + 1}/{max_calendar_days_to_check})")
 
@@ -62,11 +62,11 @@ def get_most_active_stocks():
             if resp: # If resp is not an empty list, it means data was found
                 # Filter out OTC and sort by volume
                 temp_active_stocks = sorted(
-                    [s for s in resp if not getattr(s, 'otc', False)],
-                    key=lambda x: x.v,
+                    [s for s in resp if not getattr(s, 'otc', False)], # Corrected: getattr(s, 'otc', False)
+                    key=lambda x: x.v, # Corrected attribute access: stock.v
                     reverse=True
                 )[:top_n]
-
+                
                 if temp_active_stocks: # Ensure there are actual stocks after filtering (e.g., not just OTC)
                     active_stocks = temp_active_stocks
                     final_date_str = target_date_str
@@ -80,26 +80,26 @@ def get_most_active_stocks():
         except Exception as e:
             # Log API errors but continue trying previous days
             app.logger.warning(f"API error fetching data for {target_date_str}: {e}. Decrementing date.")
-
+        
         # For the next iteration, move to the previous calendar day
         if not found_active_day: # Only decrement if we haven't found data yet
             current_date_to_check -= timedelta(days=1)
-
+        
         lookback_attempts += 1 # Increment attempt counter
-
+        
 
     if not active_stocks:
         return jsonify({"message": f"No active stocks found after looking back {max_calendar_days_to_check} calendar days.", "stocks": []}), 404
 
-    # Format the output
+    # Format the output using the correct single-letter attributes
     formatted_stocks = [
         {
-            "ticker": stock.T,
-            "volume": stock.v,
-            "close_price": stock.c,
-            "open_price": stock.o,
-            "high_price": stock.h,
-            "low_price": stock.l,
+            "ticker": stock.T, # Corrected attribute access: stock.T
+            "volume": stock.v, # Corrected attribute access: stock.v
+            "close_price": stock.c, # Corrected attribute access: stock.c
+            "open_price": stock.o, # Corrected attribute access: stock.o
+            "high_price": stock.h, # Corrected attribute access: stock.h
+            "low_price": stock.l, # Corrected attribute access: stock.l
             "date": final_date_str # Use the date of the day we found data for
         }
         for stock in active_stocks
@@ -113,7 +113,7 @@ def get_historical_data(ticker):
     Defaults to the last 90 days.
     """
     days = request.args.get('days', default=90, type=int)
-
+    
     to_date = date.today()
     from_date = to_date - timedelta(days=days)
 
@@ -131,14 +131,14 @@ def get_historical_data(ticker):
             limit=50000 # Max limit to ensure we get all data in range
         ):
             aggs.append({
-                "date": date.fromtimestamp(a.timestamp / 1000).strftime('%Y-%m-%d'), # Corrected: a.t to a.timestamp
-                "open": a.open,       # Corrected: a.o to a.open
-                "high": a.high,       # Corrected: a.h to a.high
-                "low": a.low,         # Corrected: a.l to a.low
-                "close": a.close,     # Corrected: a.c to a.close
-                "volume": a.volume    # Corrected: a.v to a.volume
+                "date": date.fromtimestamp(a.t / 1000).strftime('%Y-%m-%d'), # Corrected: a.t
+                "open": a.o,       # Corrected: a.o
+                "high": a.h,       # Corrected: a.h
+                "low": a.l,         # Corrected: a.l
+                "close": a.c,     # Corrected: a.c
+                "volume": a.v    # Corrected: a.v
             })
-
+        
         if not aggs:
             return jsonify({"message": f"No historical data found for {ticker} for the last {days} days."}), 404
 
@@ -176,7 +176,7 @@ def get_news_for_ticker(ticker):
                 "published_utc": article.published_utc,
                 "description": article.description
             })
-
+        
         if not news_articles:
             return jsonify({"message": f"No recent news found for {ticker} in the last {days} days."}), 404
 
@@ -191,4 +191,4 @@ if __name__ == '__main__':
     # When running with `python3 data_api.py`, Flask's default development server is used.
     # For production, use a WSGI server like Gunicorn or uWSGI (e.g., install gunicorn: pip install gunicorn)
     # Then run with: gunicorn --bind 0.0.0.0:5000 data_api:app
-    app.run(host='0.0.0.0', port=5000, debug=False) # Set debug=False for production
+    app.run(host='0.0.0.0', port=5000, debug=False)
