@@ -27,57 +27,92 @@ def health_check():
 @app.route('/most-active-stocks', methods=['GET'])
 def get_most_active_stocks():
     """
-    Fetches the top N most active stocks by volume for the previous trading day.
+    Fetches the top N most active stocks by volume, automatically going back
+    in time until an active trading day with data is found.
     Default N is 100.
     """
     top_n = request.args.get('limit', default=100, type=int)
 
-    # Calculate the previous trading day's date
-    today = date.today()
-    # Start from yesterday and go backwards until we find a weekday
-    prev_trading_day = today - timedelta(days=1)
-    while prev_trading_day.weekday() >= 5: # Monday is 0, Sunday is 6 (for weekend)
-        prev_trading_day -= timedelta(days=1)
+    # We can still keep the 'date' parameter for specific testing, but the loop will override if no data.
+    initial_test_date_str = request.args.get('date', type=str) 
 
-    target_date_str = prev_trading_day.strftime('%Y-%m-%d')
+    current_date = date.today()
+    # If an initial_test_date_str is provided, start from there, otherwise start from yesterday.
+    if initial_test_date_str:
+        try:
+            current_date = date.fromisoformat(initial_test_date_str)
+        except ValueError:
+            # Fallback to default if initial_test_date_str is invalid
+            pass
 
-    try:
-        # get_grouped_daily_aggs returns a list of Aggregate objects directly
-        # The 'market' and 'locale' are implicit for this specific function
-        resp = client.get_grouped_daily_aggs(
-            date=target_date_str,
-            adjusted=True  # Always use adjusted data for consistency
-        )
+    # Loop to find the most recent active trading day
+    found_active_day = False
+    loop_counter = 0
+    max_lookback_days = 10 # Prevent infinite loops, look back max 10 days
 
-        if not resp: # Check if the list of aggregates is empty
-            return jsonify({"message": f"No data found for {target_date_str}", "stocks": []}), 404
+    active_stocks = []
+    final_date_str = None
 
-        # Sort by volume and filter out OTC tickers
-        active_stocks = sorted(
-            [s for s in resp if not getattr(s, 'otc', False)], # Use getattr for 'otc' as it might be missing if false/not present
-            key=lambda x: x.volume, # Corrected attribute access: from x.v to x.volume
-            reverse=True
-        )[:top_n]
+    while not found_active_day and loop_counter < max_lookback_days:
+        # Go back one day at a time until a weekday is found.
+        # Then, attempt to fetch data for that weekday.
+        # If that weekday (or any day) has no data, decrement and try again.
 
-        # Format the output to be concise
-        formatted_stocks = [
-            {
-                "ticker": stock.ticker,        # Corrected attribute access: from stock.T to stock.ticker
-                "volume": stock.volume,        # Corrected attribute access: from stock.v to stock.volume
-                "close_price": stock.close,    # Corrected attribute access: from stock.c to stock.close
-                "open_price": stock.open,      # Corrected attribute access: from stock.o to stock.open
-                "high_price": stock.high,      # Corrected attribute access: from stock.h to stock.high
-                "low_price": stock.low,        # Corrected attribute access: from stock.l to stock.low
-                "date": target_date_str
-            }
-            for stock in active_stocks
-        ]
-        return jsonify({"date": target_date_str, "top_stocks": formatted_stocks}), 200
+        # Decrement date to look for previous trading day (handling weekends and holidays)
+        if loop_counter > 0 or not initial_test_date_str: # Only go back if not initial test or if first attempt is default 'yesterday'
+            current_date -= timedelta(days=1)
+            while current_date.weekday() >= 5: # Skip weekends (Saturday=5, Sunday=6)
+                current_date -= timedelta(days=1)
 
-    except Exception as e:
-        # Log the full error for debugging on the server side
-        app.logger.error(f"Error in get_most_active_stocks: {e}", exc_info=True)
-        return jsonify({"error": str(e), "message": "Failed to retrieve most active stocks."}), 500
+        target_date_str = current_date.strftime('%Y-%m-%d')
+        loop_counter += 1 # Increment counter for safety break
+
+        try:
+            resp = client.get_grouped_daily_aggs(
+                date=target_date_str,
+                adjusted=True
+            )
+
+            if resp: # If resp is not empty (i.e., contains aggregates)
+                # Filter out OTC and sort by volume
+                temp_active_stocks = sorted(
+                    [s for s in resp if not getattr(s, 'otc', False)],
+                    key=lambda x: x.v,
+                    reverse=True
+                )[:top_n]
+
+                if temp_active_stocks: # Ensure there are actual stocks after sorting/filtering
+                    active_stocks = temp_active_stocks
+                    final_date_str = target_date_str
+                    found_active_day = True
+                else:
+                    # No active stocks even if response was not None (e.g. only OTC found and filtered)
+                    app.logger.info(f"No non-OTC active stocks found for {target_date_str}. Looking further back.")
+            else:
+                # Polygon.io returned empty list/None, meaning no data for this day
+                app.logger.info(f"No trading data found for {target_date_str}. Looking further back.")
+
+        except Exception as e:
+            app.logger.warning(f"Error fetching data for {target_date_str}: {e}. Looking further back.")
+            # Continue loop if there's an API error for this date
+
+    if not active_stocks:
+        return jsonify({"message": f"No active stocks found after looking back {max_lookback_days} days.", "stocks": []}), 404
+
+    # Format the output
+    formatted_stocks = [
+        {
+            "ticker": stock.T,
+            "volume": stock.v,
+            "close_price": stock.c,
+            "open_price": stock.o,
+            "high_price": stock.h,
+            "low_price": stock.l,
+            "date": final_date_str # Use the date of the day we found data for
+        }
+        for stock in active_stocks
+    ]
+    return jsonify({"date": final_date_str, "top_stocks": formatted_stocks}), 200
 
 @app.route('/historical-data/<ticker>', methods=['GET'])
 def get_historical_data(ticker):
