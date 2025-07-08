@@ -33,39 +33,25 @@ def get_most_active_stocks():
     """
     top_n = request.args.get('limit', default=100, type=int)
 
-    # We can still keep the 'date' parameter for specific testing, but the loop will override if no data.
-    initial_test_date_str = request.args.get('date', type=str) 
+    # Start looking from the very first day we might need to check.
+    # Today's market data is not available until end of day, so start from yesterday.
+    current_date_to_check = date.today() - timedelta(days=1)
 
-    current_date = date.today()
-    # If an initial_test_date_str is provided, start from there, otherwise start from yesterday.
-    if initial_test_date_str:
-        try:
-            current_date = date.fromisoformat(initial_test_date_str)
-        except ValueError:
-            # Fallback to default if initial_test_date_str is invalid
-            pass
-
-    # Loop to find the most recent active trading day
     found_active_day = False
-    loop_counter = 0
-    max_lookback_days = 10 # Prevent infinite loops, look back max 10 days
+    lookback_attempts = 0
+    max_calendar_days_to_check = 15 # Look back up to 15 calendar days to find an active trading day
 
     active_stocks = []
     final_date_str = None
 
-    while not found_active_day and loop_counter < max_lookback_days:
-        # Go back one day at a time until a weekday is found.
-        # Then, attempt to fetch data for that weekday.
-        # If that weekday (or any day) has no data, decrement and try again.
+    # Loop until an active trading day with data is found or max lookback reached
+    while not found_active_day and lookback_attempts < max_calendar_days_to_check:
+        # Skip weekends (Saturday=5, Sunday=6) before trying to fetch data for this date
+        while current_date_to_check.weekday() >= 5:
+            current_date_to_check -= timedelta(days=1)
 
-        # Decrement date to look for previous trading day (handling weekends and holidays)
-        if loop_counter > 0 or not initial_test_date_str: # Only go back if not initial test or if first attempt is default 'yesterday'
-            current_date -= timedelta(days=1)
-            while current_date.weekday() >= 5: # Skip weekends (Saturday=5, Sunday=6)
-                current_date -= timedelta(days=1)
-
-        target_date_str = current_date.strftime('%Y-%m-%d')
-        loop_counter += 1 # Increment counter for safety break
+        target_date_str = current_date_to_check.strftime('%Y-%m-%d')
+        app.logger.info(f"Attempting to fetch data for {target_date_str} (Attempt: {lookback_attempts + 1}/{max_calendar_days_to_check})")
 
         try:
             resp = client.get_grouped_daily_aggs(
@@ -73,7 +59,7 @@ def get_most_active_stocks():
                 adjusted=True
             )
 
-            if resp: # If resp is not empty (i.e., contains aggregates)
+            if resp: # If resp is not an empty list, it means data was found
                 # Filter out OTC and sort by volume
                 temp_active_stocks = sorted(
                     [s for s in resp if not getattr(s, 'otc', False)],
@@ -81,23 +67,29 @@ def get_most_active_stocks():
                     reverse=True
                 )[:top_n]
 
-                if temp_active_stocks: # Ensure there are actual stocks after sorting/filtering
+                if temp_active_stocks: # Ensure there are actual stocks after filtering (e.g., not just OTC)
                     active_stocks = temp_active_stocks
                     final_date_str = target_date_str
                     found_active_day = True
+                    app.logger.info(f"Successfully found active stocks for {final_date_str}.")
                 else:
-                    # No active stocks even if response was not None (e.g. only OTC found and filtered)
-                    app.logger.info(f"No non-OTC active stocks found for {target_date_str}. Looking further back.")
-            else:
-                # Polygon.io returned empty list/None, meaning no data for this day
-                app.logger.info(f"No trading data found for {target_date_str}. Looking further back.")
+                    app.logger.info(f"No non-OTC active stocks found for {target_date_str}. Decrementing date.")
+            else: # resp was an empty list (no data for that trading day, e.g., a holiday)
+                app.logger.info(f"Polygon.io returned no data for {target_date_str}. Decrementing date.")
 
         except Exception as e:
-            app.logger.warning(f"Error fetching data for {target_date_str}: {e}. Looking further back.")
-            # Continue loop if there's an API error for this date
+            # Log API errors but continue trying previous days
+            app.logger.warning(f"API error fetching data for {target_date_str}: {e}. Decrementing date.")
+
+        # For the next iteration, move to the previous calendar day
+        if not found_active_day: # Only decrement if we haven't found data yet
+            current_date_to_check -= timedelta(days=1)
+
+        lookback_attempts += 1 # Increment attempt counter
+
 
     if not active_stocks:
-        return jsonify({"message": f"No active stocks found after looking back {max_lookback_days} days.", "stocks": []}), 404
+        return jsonify({"message": f"No active stocks found after looking back {max_calendar_days_to_check} calendar days.", "stocks": []}), 404
 
     # Format the output
     formatted_stocks = [
