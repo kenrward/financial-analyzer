@@ -1,8 +1,8 @@
 import httpx
-from langchain.tools import Tool
+from langchain.tools import Tool, create_structured_tool # ADD create_structured_tool
 import json
 from datetime import date, timedelta
-from pydantic import BaseModel, Field # <--- ADD THIS LINE
+from pydantic import BaseModel, Field
 
 # --- Configuration ---
 DATA_API_BASE_URL = "https://tda.kewar.org"
@@ -85,7 +85,7 @@ class AnalyzeTechnicalPatternsInput(BaseModel):
 # --- LangChain Tool Instances ---
 # We define the tools by explicitly creating Tool instances with args_schema.
 # The functions passed to Tool are the _raw_ functions.
-get_most_active_stocks_tool = Tool(
+get_most_active_stocks_tool = create_structured_tool( # CHANGE HERE
     name="get_most_active_stocks",
     description="""
     Fetches a list of the most active stocks by trading volume for the previous trading day.
@@ -93,10 +93,10 @@ get_most_active_stocks_tool = Tool(
     Returns a JSON string of a list of stock tickers and their daily summary.
     """,
     func=_get_most_active_stocks,
-    args_schema=GetMostActiveStocksInput # <--- ADD THIS LINE
+    args_schema=GetMostActiveStocksInput
 )
 
-get_historical_data_tool = Tool(
+get_historical_data_tool = create_structured_tool( # CHANGE HERE
     name="get_historical_data",
     description="""
     Retrieves historical daily OHLCV (Open, High, Low, Close, Volume) data for a given stock ticker.
@@ -104,10 +104,10 @@ get_historical_data_tool = Tool(
     Returns a JSON string of historical data.
     """,
     func=_get_historical_data,
-    args_schema=GetHistoricalDataInput # <--- ADD THIS LINE
+    args_schema=GetHistoricalDataInput
 )
 
-get_news_for_ticker_tool = Tool(
+get_news_for_ticker_tool = create_structured_tool( # CHANGE HERE
     name="get_news_for_ticker",
     description="""
     Fetches recent news articles for a given stock ticker.
@@ -115,10 +115,10 @@ get_news_for_ticker_tool = Tool(
     Returns a JSON string of news articles.
     """,
     func=_get_news_for_ticker,
-    args_schema=GetNewsForTickerInput # <--- ADD THIS LINE
+    args_schema=GetNewsForTickerInput
 )
 
-analyze_technical_patterns_tool = Tool(
+analyze_technical_patterns_tool = create_structured_tool( # CHANGE HERE
     name="analyze_technical_patterns",
     description="""
     Sends historical OHLCV data for a stock to the Technical Analysis API
@@ -127,7 +127,7 @@ analyze_technical_patterns_tool = Tool(
     Returns a JSON string of the analysis results, including indicators and detected patterns.
     """,
     func=_analyze_technical_patterns,
-    args_schema=AnalyzeTechnicalPatternsInput # <--- ADD THIS LINE
+    args_schema=AnalyzeTechnicalPatternsInput
 )
 
 # We provide a list of tool objects that the agent can use
