@@ -3,7 +3,7 @@ from datetime import date, timedelta
 from flask import Flask, jsonify, request
 import pandas as pd
 import numpy as np # Explicitly import numpy for NaN
-import ta # Changed from pandas_ta as ta
+import ta 
 
 app = Flask(__name__)
 
@@ -32,19 +32,12 @@ def analyze_stock_data():
     df['date'] = pd.to_datetime(df['date'])
     df = df.set_index('date')
 
-    # The 'ta' library typically expects 'open', 'high', 'low', 'close', 'volume' (lowercase)
-    # The data_api sends lowercase column names, so this rename might not be strictly necessary
-    # if the input is already correct, but it ensures consistency.
-    # It's safer to ensure they are consistent.
-    # We'll rename if the input format uses 'open_price' etc., otherwise ensure they are lowercase.
-    df.columns = df.columns.str.lower() # Convert all column names to lowercase to match 'ta' expectations
+    df.columns = df.columns.str.lower()
 
-    # Ensure the required columns exist after potential renaming/conversion
     required_cols = ['open', 'high', 'low', 'close', 'volume']
     if not all(col in df.columns for col in required_cols):
         missing_cols = [col for col in required_cols if col not in df.columns]
-        return jsonify({"error": f"Missing required OHLCV columns: {', '.join(missing_cols)}. Ensure input data matches expected format (lowercase open, high, low, close, volume).", "ticker": ticker}), 400
-
+        return jsonify({"error": f"Missing required OHLCV columns: {', '.join(missing_cols)}."}), 400
 
     if len(df) < 50: # Ensure enough data for common indicators
         last_close = df['close'].iloc[-1] if not df.empty else None
@@ -63,17 +56,27 @@ def analyze_stock_data():
 
     try:
         # --- Calculate Indicators using 'ta' library ---
+        
         # Relative Strength Index (RSI)
         rsi_series = ta.momentum.rsi(df['close'], window=14)
         if not rsi_series.empty and pd.notna(rsi_series.iloc[-1]):
             analysis_results['indicators']['RSI'] = round(rsi_series.iloc[-1], 2)
 
         # Moving Average Convergence Divergence (MACD)
-        macd_data = ta.trend.macd(df['close'], window_fast=12, window_slow=26, window_sign=9)
-        if not macd_data.empty and pd.notna(macd_data['MACD_12_26_9'].iloc[-1]):
-            analysis_results['indicators']['MACD'] = round(macd_data['MACD_12_26_9'].iloc[-1], 2)
-            analysis_results['indicators']['MACD_Signal'] = round(macd_data['MACDS_12_26_9'].iloc[-1], 2)
-            analysis_results['indicators']['MACD_Hist'] = round(macd_data['MACDH_12_26_9'].iloc[-1], 2)
+        # Instantiate the MACD indicator class
+        macd_indicator = ta.trend.MACD(df['close'], window_fast=12, window_slow=26, window_sign=9)
+        
+        # Get the components from the indicator object
+        macd_line = macd_indicator.macd()
+        macd_signal = macd_indicator.macd_signal()
+        macd_hist = macd_indicator.macd_diff() # The histogram is the 'diff'
+        
+        if not macd_line.empty and pd.notna(macd_line.iloc[-1]):
+            analysis_results['indicators']['MACD'] = round(macd_line.iloc[-1], 2)
+        if not macd_signal.empty and pd.notna(macd_signal.iloc[-1]):
+            analysis_results['indicators']['MACD_Signal'] = round(macd_signal.iloc[-1], 2)
+        if not macd_hist.empty and pd.notna(macd_hist.iloc[-1]):
+            analysis_results['indicators']['MACD_Hist'] = round(macd_hist.iloc[-1], 2)
 
         # Simple Moving Averages (SMA)
         sma_20_series = ta.trend.sma_indicator(df['close'], window=20)
@@ -83,24 +86,15 @@ def analyze_stock_data():
         sma_50_series = ta.trend.sma_indicator(df['close'], window=50)
         if not sma_50_series.empty and pd.notna(sma_50_series.iloc[-1]):
             analysis_results['indicators']['SMA_50'] = round(sma_50_series.iloc[-1], 2)
-
-        # --- Candlestick Pattern Recognition (requires manual implementation or a dedicated library) ---
-        # The 'ta' library does not have built-in candlestick pattern recognition like pandas_ta.
-        # We'll keep the SMA crossovers as an example "pattern" for now.
-
-        # Simple SMA crossover signals
-        if 'SMA_20' in analysis_results['indicators'] and 'SMA_50' in analysis_results['indicators'] and len(df) >= 2:
+        
+        # --- Simple SMA crossover signals ---
+        if 'SMA_20' in analysis_results['indicators'] and 'SMA_50' in analysis_results['indicators']:
             sma_20_current = analysis_results['indicators']['SMA_20']
             sma_50_current = analysis_results['indicators']['SMA_50']
 
-            # Need previous day's SMA values for a true crossover detection
-            # Ensure these series are also not empty before accessing previous elements
-            sma_20_prev_series = ta.trend.sma_indicator(df['close'], window=20)
-            sma_50_prev_series = ta.trend.sma_indicator(df['close'], window=50)
-
-            if not sma_20_prev_series.empty and not sma_50_prev_series.empty and len(sma_20_prev_series) >= 2 and len(sma_50_prev_series) >= 2:
-                sma_20_prev = sma_20_prev_series.iloc[-2]
-                sma_50_prev = sma_50_prev_series.iloc[-2]
+            if len(sma_20_series) >= 2 and len(sma_50_series) >= 2:
+                sma_20_prev = sma_20_series.iloc[-2]
+                sma_50_prev = sma_50_series.iloc[-2]
 
                 if sma_20_current > sma_50_current and sma_20_prev <= sma_50_prev:
                     analysis_results['patterns'].append("SMA Crossover: 20-Day above 50-Day (Bullish)")
