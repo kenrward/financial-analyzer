@@ -80,7 +80,7 @@ if __name__ == '__main__':
     print(f"Ollama Model: {OLLAMA_MODEL} at {OLLAMA_BASE_URL}")
 
     # ✅ A very simple query that maps directly to our one tool
-    initial_query = "Give me a full trading analysis of the top 3 most active stocks."
+    initial_query = "Give me a full trading analysis of the top 25 most active stocks."
 
     # NOTE: Your run_trading_agent function is already async, so it will correctly
     # await the new async "super-tool". No changes are needed there.
