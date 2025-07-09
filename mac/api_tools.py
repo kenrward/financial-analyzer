@@ -87,8 +87,8 @@ def _get_and_analyze_ticker(ticker: str, days: int = 90) -> str:
 async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
     """
     A master tool that performs the full analysis workflow:
-    1. Finds the most active stocks.
-    2. For each stock, gets its technical analysis and recent news concurrently.
+    1. Finds the most active stocks (including their price).
+    2. For each stock, gets its technical analysis and recent news.
     3. Compiles all information into a final report.
     """
     print(f"--- 🚀 Kicking off full analysis for top {limit} stocks ---")
@@ -100,16 +100,18 @@ async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
     if "error" in active_stocks_data or not active_stocks_data.get("top_stocks"):
         return json.dumps({"error": "Could not retrieve the list of active stocks."})
 
+    # Create a simple price lookup from the initial data
+    price_lookup = {stock['ticker']: stock.get('close_price') for stock in active_stocks_data["top_stocks"]}
     tickers = [stock['ticker'] for stock in active_stocks_data["top_stocks"]]
     print(f"--- Found active stocks: {tickers} ---")
     
     final_results = []
 
-    # Step 2 & 3: Loop through tickers and get analysis + news for each
+    # Loop through tickers and get analysis + news
     for ticker in tickers:
         print(f"--- Analyzing {ticker}... ---")
         try:
-            # Run analysis and news calls concurrently for speed
+            # Run analysis and news calls concurrently
             analysis_str, news_str = await asyncio.gather(
                 asyncio.to_thread(_get_and_analyze_ticker, ticker=ticker),
                 asyncio.to_thread(_get_news_for_ticker, ticker=ticker)
@@ -117,6 +119,7 @@ async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
             
             final_results.append({
                 "ticker": ticker,
+                "price": price_lookup.get(ticker, "N/A"), # Add the price here
                 "technical_analysis": json.loads(analysis_str),
                 "news": json.loads(news_str)
             })
@@ -124,6 +127,7 @@ async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
             print(f"--- Failed to process {ticker}: {e} ---")
             final_results.append({
                 "ticker": ticker,
+                "price": price_lookup.get(ticker, "N/A"),
                 "error": f"An error occurred while processing this stock: {e}"
             })
             

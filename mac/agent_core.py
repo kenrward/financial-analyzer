@@ -74,6 +74,6 @@ if __name__ == '__main__':
     print(f"Ollama Model: {OLLAMA_MODEL} at {OLLAMA_BASE_URL}")
 
     # A simple query for the first agent. The complexity is in the second prompt.
-    initial_user_query = "Give me a full trading analysis of the top 5 most active stocks."
+    initial_user_query = "Give me a full trading analysis of the top 25 most active stocks."
 
     asyncio.run(run_trading_analysis_workflow(initial_user_query))
