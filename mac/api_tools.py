@@ -1,25 +1,25 @@
 import httpx
-from langchain.tools import StructuredTool# This is the correct import for create_structured_tool
+from langchain.tools import StructuredTool
 import json
-from datetime import date, timedelta
 from pydantic import BaseModel, Field
 
-# --- Configuration ---
+# --- Configuration (remains the same) ---
 DATA_API_BASE_URL = "https://tda.kewar.org"
 TA_API_BASE_URL = "https://tta.kewar.org"
 http_client = httpx.Client(verify=False)
 
+# --- Helper Functions (remain the same) ---
 def _make_api_call(url: str, method: str = "GET", params: dict = None, json_data: dict = None):
-    """Helper to make HTTP calls and handle basic errors."""
+    # ... (no changes to this function)
     try:
         if method == "GET":
             response = http_client.get(url, params=params, timeout=30)
         elif method == "POST":
-            response = http_client.post(url, json=json_data, timeout=60) # Increased timeout for TA
+            response = http_client.post(url, json=json_data, timeout=60)
         else:
             raise ValueError(f"Unsupported HTTP method: {method}")
 
-        response.raise_for_status() # Raises HTTPStatusError for bad responses (4xx or 5xx)
+        response.raise_for_status()
         return response.json()
     except httpx.HTTPStatusError as e:
         print(f"HTTP error occurred: {e.response.status_code} - {e.response.text}")
@@ -34,27 +34,33 @@ def _make_api_call(url: str, method: str = "GET", params: dict = None, json_data
         print(f"An unexpected error occurred during API call: {e}")
         return {"error": f"An unexpected error occurred: {e}"}
 
-# --- Raw functions (not decorated yet) ---
-# These remain unchanged, as they define the underlying logic
+
 def _get_most_active_stocks(limit: int = 100) -> str:
+    # ... (no changes to this function)
     url = f"{DATA_API_BASE_URL}/most-active-stocks"
     params = {"limit": limit}
     response = _make_api_call(url, params=params)
     return json.dumps(response)
 
+
 def _get_historical_data(ticker: str, days: int = 90) -> str:
+    # ... (no changes to this function)
     url = f"{DATA_API_BASE_URL}/historical-data/{ticker}"
     params = {"days": days}
     response = _make_api_call(url, params=params)
     return json.dumps(response)
 
+
 def _get_news_for_ticker(ticker: str, days: int = 7) -> str:
+    # ... (no changes to this function)
     url = f"{DATA_API_BASE_URL}/news/{ticker}"
     params = {"days": days}
     response = _make_api_call(url, params=params)
     return json.dumps(response)
 
+
 def _analyze_technical_patterns(ticker: str, historical_data_json: str) -> str:
+    # ... (no changes to this function)
     url = f"{TA_API_BASE_URL}/analyze"
     try:
         data_payload = json.loads(historical_data_json)
@@ -63,80 +69,69 @@ def _analyze_technical_patterns(ticker: str, historical_data_json: str) -> str:
     response = _make_api_call(url, method="POST", json_data=data_payload)
     return json.dumps(response)
 
-# --- Pydantic Schemas for Tool Inputs ---
+# --- ✨ NEW: High-Level Combination Function ---
+def _get_and_analyze_ticker(ticker: str, days: int = 90) -> str:
+    """Gets historical data and immediately runs technical analysis on it."""
+    print(f"--- Running combined analysis for {ticker} ---")
+    
+    # Step 1: Get historical data
+    historical_data_str = _get_historical_data(ticker, days)
+    historical_data_json = json.loads(historical_data_str)
+    
+    # Check if getting data failed
+    if "error" in historical_data_json:
+        return json.dumps(historical_data_json)
+        
+    # Step 2: Run technical analysis on the data we just got
+    analysis_result_str = _analyze_technical_patterns(ticker, historical_data_str)
+    return analysis_result_str
+
+
+# --- Pydantic Schemas ---
 class GetMostActiveStocksInput(BaseModel):
     limit: int = Field(100, description="The number of top stocks to retrieve.")
-
-class GetHistoricalDataInput(BaseModel):
-    ticker: str = Field(..., description="The stock ticker symbol (e.g., AAPL).")
-    days: int = Field(90, description="The number of historical days to look back.")
 
 class GetNewsForTickerInput(BaseModel):
     ticker: str = Field(..., description="The stock ticker symbol (e.g., NVDA).")
     days: int = Field(7, description="The number of recent days to look back for news.")
 
-class AnalyzeTechnicalPatternsInput(BaseModel):
-    ticker: str = Field(..., description="The stock ticker symbol (e.g., MSFT).")
-    historical_data_json: str = Field(
-        ...,
-        description="Historical OHLCV data as a JSON string, expected to contain 'ticker' and 'data' keys."
-    )
+# --- ✨ NEW Schema for the combined tool ---
+class GetTickerAnalysisInput(BaseModel):
+    ticker: str = Field(..., description="The stock ticker symbol to analyze (e.g., AAPL).")
+    days: int = Field(90, description="The number of historical days to use for the analysis.")
 
-# --- LangChain Tool Instances ---
-# We define the tools by explicitly creating Tool instances with args_schema.
-# The functions passed to Tool are the _raw_ functions.
-get_most_active_stocks_tool = StructuredTool( # CHANGE HERE
-    name="get_most_active_stocks",
-    description="""
-    Fetches a list of the most active stocks by trading volume for the previous trading day.
-    Use this tool to identify stocks with high liquidity and interest.
-    Returns a JSON string of a list of stock tickers and their daily summary.
-    """,
+
+# --- LangChain Tool Instances (Updated) ---
+get_most_active_stocks_tool = StructuredTool.from_function(
     func=_get_most_active_stocks,
+    name="get_most_active_stocks",
+    description="Fetches a list of the most active stocks by trading volume for the previous trading day. Use this first to identify stocks of interest.",
     args_schema=GetMostActiveStocksInput
 )
 
-get_historical_data_tool = StructuredTool( # CHANGE HERE
-    name="get_historical_data",
-    description="""
-    Retrieves historical daily OHLCV (Open, High, Low, Close, Volume) data for a given stock ticker.
-    Use this to get data needed for technical analysis.
-    Returns a JSON string of historical data.
-    """,
-    func=_get_historical_data,
-    args_schema=GetHistoricalDataInput
-)
-
-get_news_for_ticker_tool = StructuredTool( # CHANGE HERE
-    name="get_news_for_ticker",
-    description="""
-    Fetches recent news articles for a given stock ticker.
-    Use this to gather qualitative information and sentiment for a stock.
-    Returns a JSON string of news articles.
-    """,
+get_news_for_ticker_tool = StructuredTool.from_function(
     func=_get_news_for_ticker,
+    name="get_news_for_ticker",
+    description="Fetches recent news articles for a given stock ticker to understand sentiment and context.",
     args_schema=GetNewsForTickerInput
 )
 
-analyze_technical_patterns_tool = StructuredTool( # CHANGE HERE
-    name="analyze_technical_patterns",
-    description="""
-    Sends historical OHLCV data for a stock to the Technical Analysis API
-    to identify common technical indicators (RSI, MACD, SMAs) and simple patterns
-    like SMA crossovers.
-    Returns a JSON string of the analysis results, including indicators and detected patterns.
-    """,
-    func=_analyze_technical_patterns,
-    args_schema=AnalyzeTechnicalPatternsInput
+# --- ✨ NEW Combined Tool ---
+get_ticker_analysis_tool = StructuredTool.from_function(
+    func=_get_and_analyze_ticker,
+    name="get_ticker_technical_analysis",
+    description="A complete tool that gets historical data for a stock and runs a full technical analysis (RSI, MACD, SMAs). Use this for individual stock analysis.",
+    args_schema=GetTickerAnalysisInput
 )
 
-# We provide a list of tool objects that the agent can use
-# This list will be imported by agent_core.py
+
+# --- ✅ UPDATED: Simplified Tool List for the Agent ---
+# We REMOVED the separate get_historical_data and analyze_technical_patterns tools
+# to prevent the agent from getting confused.
 tools = [
     get_most_active_stocks_tool,
-    get_historical_data_tool,
-    get_news_for_ticker_tool,
-    analyze_technical_patterns_tool
+    get_ticker_analysis_tool, # The new, powerful tool
+    get_news_for_ticker_tool
 ]
 
 # --- Test functions (for debugging, won't be used by LLM directly) ---
