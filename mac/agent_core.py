@@ -10,7 +10,7 @@ from langchain.agents.output_parsers.tools import parse_tool_calls # For parsing
 
 # --- Configuration ---
 OLLAMA_BASE_URL = "http://localhost:11434"
-OLLAMA_MODEL = "llama3:8b-instruct-q4_K_M" # Your tool-calling capable model
+OLLAMA_MODEL = "llama3.1" # Your tool-calling capable model
 
 llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL, temperature=0.1)
 
