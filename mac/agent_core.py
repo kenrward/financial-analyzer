@@ -79,7 +79,9 @@ if __name__ == '__main__':
     print("Starting agent...")
     print(f"Ollama Model: {OLLAMA_MODEL} at {OLLAMA_BASE_URL}")
 
-    # ✅ UPDATED: A simpler, more direct query for the agent
-    initial_query = "Find the top 5 most active stocks. Then, for each of those stocks, get its technical analysis and recent news. Finally, synthesize all of this information to provide a bullish, bearish, or neutral outlook for each stock."
+    # ✅ A very simple query that maps directly to our one tool
+    initial_query = "Give me a full trading analysis of the top 3 most active stocks."
 
+    # NOTE: Your run_trading_agent function is already async, so it will correctly
+    # await the new async "super-tool". No changes are needed there.
     asyncio.run(run_trading_agent(initial_query))
