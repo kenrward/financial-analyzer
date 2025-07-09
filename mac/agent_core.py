@@ -80,7 +80,20 @@ if __name__ == '__main__':
     print(f"Ollama Model: {OLLAMA_MODEL} at {OLLAMA_BASE_URL}")
 
     # ✅ A very simple query that maps directly to our one tool
-    initial_query = "Give me a full trading analysis of the top 25 most active stocks."
+    initial_query = """
+    First, use your tool to get a full trading analysis of the top 15 most active stocks.
+
+    After you have the data, your final task is to act as a senior financial analyst. 
+    You must synthesize the tool's JSON output into a summary report. 
+    
+    For each stock, determine if the outlook is Bullish, Bearish, or Neutral. 
+    Your justification should be brief and based on the technical indicators and news provided.
+
+    Present the final report as a markdown table with columns: 
+    Ticker, Price, Outlook, and Justification.
+    
+    Do not explain the JSON. Do not show your raw data. Only output the final table.
+    """
 
     # NOTE: Your run_trading_agent function is already async, so it will correctly
     # await the new async "super-tool". No changes are needed there.
