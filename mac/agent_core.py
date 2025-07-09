@@ -12,7 +12,7 @@ from langgraph.prebuilt import create_react_agent
 # --- Configuration ---
 OLLAMA_BASE_URL = "http://localhost:11434"
 # Using the model you confirmed supports tool-calling
-OLLAMA_MODEL = "llama3:8b-instruct-q4_K_M" 
+OLLAMA_MODEL = "llama3.1" 
 
 # Initialize the LLM
 # A slightly higher temperature can sometimes help with reasoning chains
