@@ -73,7 +73,14 @@ def _analyze_technical_patterns(ticker: str, historical_data_json: str) -> str:
 def _get_and_analyze_ticker(ticker: str, days: int = 90) -> str:
     """Gets historical data and immediately runs technical analysis on it."""
     print(f"--- Running combined analysis for {ticker} ---")
-    
+
+    # ✅ --- START OF THE FIX --- ✅
+    # Enforce a minimum lookback period to ensure TA indicators can be calculated.
+    if days < 50:
+        print(f"--- Requested days ({days}) is less than 50. Overriding to 90. ---")
+        days = 90
+    # ✅ --- END OF THE FIX --- ✅
+
     # Step 1: Get historical data
     historical_data_str = _get_historical_data(ticker, days)
     historical_data_json = json.loads(historical_data_str)
