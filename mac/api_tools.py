@@ -7,16 +7,17 @@ import os
 import httpx
 from langchain.tools import StructuredTool
 from pydantic import BaseModel, Field
-from polygon import RESTClient
+
+# NOTE: We are removing the 'polygon' library dependency to fix the connection pool issue.
+# from polygon import RESTClient 
 
 log = logging.getLogger(__name__)
 
-# --- Reusable HTTP and Polygon Clients ---
+# --- Reusable HTTP Client ---
 async_client = httpx.AsyncClient(verify=False, timeout=60)
-polygon_client = RESTClient(os.getenv("POLYGON_API_KEY"))
 
 # --- ⚙️ Concurrency Limiter (Semaphore) ---
-# This will act as a bouncer, ensuring no more than 10 concurrent requests to the Polygon API
+# This will ensure no more than 10 concurrent requests to the Polygon API
 POLYGON_API_SEMAPHORE = asyncio.Semaphore(10)
 
 # --- Base URL Configuration ---
@@ -24,31 +25,30 @@ DATA_API_BASE_URL = "https://tda.kewar.org"
 TA_API_BASE_URL = "https://tta.kewar.org"
 
 
-# --- Helper function to check for options using the official client ---
-def _check_options_sync(ticker: str) -> bool:
-    """Synchronous helper to check for option contracts."""
-    try:
-        contracts = polygon_client.list_options_contracts(underlying_ticker=ticker, limit=1)
-        next(contracts)
-        return True
-    except StopIteration:
-        return False
-    except Exception as e:
-        log.error(f"Polygon client error checking options for {ticker}: {e}")
-        return False
-
+# --- ✅ NEW: Reliable Optionable Check using httpx ---
 async def _is_ticker_optionable(ticker: str) -> bool:
-    """Asynchronously checks if a ticker is optionable, respecting the semaphore."""
+    """Checks if a ticker is optionable using httpx and a semaphore."""
+    url = "https://api.polygon.io/v3/reference/options/contracts"
+    params = {
+        "underlying_ticker": ticker,
+        "limit": 1,
+        "apiKey": os.getenv("POLYGON_API_KEY")
+    }
+    
     async with POLYGON_API_SEMAPHORE:
-        # log.info(f"Acquired semaphore for {ticker}, checking now...")
-        is_optionable = await asyncio.to_thread(_check_options_sync, ticker)
-        # The semaphore is automatically released when exiting the 'with' block
-    return is_optionable
+        try:
+            response = await async_client.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+            # If the results list is not empty, it means an options contract was found.
+            return len(data.get("results", [])) > 0
+        except Exception as e:
+            log.error(f"Could not check optionability for {ticker}: {e}")
+            return False
 
 
 # --- Component Functions ---
 async def _get_most_active_stocks(limit: int = 100):
-    # ... (function is unchanged)
     url = f"{DATA_API_BASE_URL}/most-active-stocks"
     try:
         response = await async_client.get(url, params={"limit": limit})
@@ -59,7 +59,6 @@ async def _get_most_active_stocks(limit: int = 100):
         return {"error": "Failed to get active stocks"}
 
 async def _get_news_for_ticker(ticker: str, days: int = 7):
-    # ... (function is unchanged)
     url = f"{DATA_API_BASE_URL}/news/{ticker}"
     params = {"days": days}
     try:
@@ -71,7 +70,6 @@ async def _get_news_for_ticker(ticker: str, days: int = 7):
         return {"error": f"Failed news for {ticker}"}
         
 async def _get_and_analyze_ticker(ticker: str, days: int = 90):
-    # ... (function is unchanged)
     try:
         async with httpx.AsyncClient(verify=False) as session:
             hist_url = f"{DATA_API_BASE_URL}/historical-data/{ticker}"
@@ -86,7 +84,7 @@ async def _get_and_analyze_ticker(ticker: str, days: int = 90):
         log.error(f"Failed analysis for {ticker}: {e}")
         return {"error": f"Failed TA for {ticker}"}
 
-# --- The "Super-Tool" - Fully Asynchronous and Optimized ---
+# --- The "Super-Tool" ---
 async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
     log.info(f"🚀 Kicking off full analysis for top {limit} stocks")
     
@@ -98,7 +96,7 @@ async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
     price_lookup = {stock['ticker']: stock.get('close_price') for stock in active_stocks}
     log.info(f"Found {len(active_stocks)} active stocks. Filtering for optionable tickers...")
 
-    # Concurrently check for optionability, respecting the semaphore limit
+    # Concurrently check for optionability using our new reliable, semaphore-controlled function
     optionable_tasks = {stock['ticker']: _is_ticker_optionable(stock['ticker']) for stock in active_stocks}
     optionable_results = await asyncio.gather(*optionable_tasks.values())
     
@@ -108,8 +106,7 @@ async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
     if not optionable_tickers:
         return json.dumps([], indent=2)
 
-    # The rest of the function remains the same, as it calls your local APIs
-    # which do not have the same connection pool issue.
+    # Concurrently fetch analysis and news for the filtered list
     analysis_tasks = {ticker: _get_and_analyze_ticker(ticker) for ticker in optionable_tickers}
     news_tasks = {ticker: _get_news_for_ticker(ticker) for ticker in optionable_tickers}
     
