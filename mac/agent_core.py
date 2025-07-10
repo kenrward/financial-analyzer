@@ -13,10 +13,12 @@ from api_tools import _find_and_analyze_active_stocks
 
 # --- ⚙️ Set up Logging ---
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.ERROR,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler("agent_run.log"),
+
+        
         logging.StreamHandler()
     ]
 )
