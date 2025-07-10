@@ -1,11 +1,14 @@
 # agent_core.py
 
+import nest_asyncio # Import the library
+nest_asyncio.apply() # Apply the patch
+
 import asyncio
 import json
 import logging
 from langchain_ollama import ChatOllama
+from langchain_core.messages import HumanMessage
 
-# ✅ --- THE FIX: Import the tool function directly --- ✅
 from api_tools import _find_and_analyze_active_stocks
 
 # --- ⚙️ Set up Logging ---
@@ -29,7 +32,6 @@ async def run_trading_analysis_workflow(limit: int):
     logging.info(f"🚀 Kicking off Direct Execution Workflow for top {limit} stocks.")
 
     # --- STEP 1: Directly call the data gathering function ---
-    # No agent, no LangGraph, no timeouts. Just a direct, reliable function call.
     logging.info("STEP 1: Directly executing data gathering and analysis tool...")
     raw_data_json_string = await _find_and_analyze_active_stocks(limit)
 
