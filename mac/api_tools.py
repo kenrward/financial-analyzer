@@ -48,6 +48,16 @@ def _get_historical_data(ticker: str, days: int = 90) -> str:
     response = _make_api_call(url, params=params)
     return json.dumps(response)
 
+# --- Add this new helper function ---
+def _get_ticker_details(ticker: str) -> dict:
+    """Gets detailed information for a single ticker, including optionability."""
+    url = f"https://api.polygon.io/v3/reference/tickers/{ticker}"
+    # The POLYGON_API_KEY must be available as an environment variable
+    # This call is slightly different and needs the key in the params
+    params = {"apiKey": os.getenv("POLYGON_API_KEY")} 
+    response = _make_api_call(url, params=params)
+    return response
+
 def _get_news_for_ticker(ticker: str, days: int = 7) -> str:
     url = f"{DATA_API_BASE_URL}/news/{ticker}"
     params = {"days": days}
@@ -86,10 +96,8 @@ def _get_and_analyze_ticker(ticker: str, days: int = 90) -> str:
 # --- The "Super-Tool" Function ---
 async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
     """
-    A master tool that performs the full analysis workflow:
-    1. Finds the most active stocks (including their price).
-    2. For each stock, gets its technical analysis and recent news.
-    3. Compiles all information into a final report.
+    Master tool that finds active stocks, filters for optionable ones, 
+    and then runs the full analysis.
     """
     print(f"--- 🚀 Kicking off full analysis for top {limit} stocks ---")
     
@@ -100,26 +108,36 @@ async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
     if "error" in active_stocks_data or not active_stocks_data.get("top_stocks"):
         return json.dumps({"error": "Could not retrieve the list of active stocks."})
 
-    # Create a simple price lookup from the initial data
+    active_tickers = [stock['ticker'] for stock in active_stocks_data["top_stocks"]]
     price_lookup = {stock['ticker']: stock.get('close_price') for stock in active_stocks_data["top_stocks"]}
-    tickers = [stock['ticker'] for stock in active_stocks_data["top_stocks"]]
-    print(f"--- Found active stocks: {tickers} ---")
     
-    final_results = []
+    print(f"--- Found active stocks: {active_tickers} ---")
+    print("--- Filtering for optionable stocks... ---")
 
-    # Loop through tickers and get analysis + news
-    for ticker in tickers:
+    # Step 2: Filter for optionable stocks
+    optionable_tickers = []
+    for ticker in active_tickers:
+        details = _get_ticker_details(ticker)
+        # Check if the 'results' key and the 'options' key exist and if 'optionable' is true
+        if details and details.get('results', {}).get('options', {}).get('optionable'):
+            optionable_tickers.append(ticker)
+        else:
+            print(f"--- Skipping {ticker} (not optionable) ---")
+    
+    print(f"--- Found optionable stocks: {optionable_tickers} ---")
+    
+    # Step 3: Concurrently analyze the filtered list of stocks
+    final_results = []
+    for ticker in optionable_tickers:
         print(f"--- Analyzing {ticker}... ---")
         try:
-            # Run analysis and news calls concurrently
             analysis_str, news_str = await asyncio.gather(
                 asyncio.to_thread(_get_and_analyze_ticker, ticker=ticker),
                 asyncio.to_thread(_get_news_for_ticker, ticker=ticker)
             )
-            
             final_results.append({
                 "ticker": ticker,
-                "price": price_lookup.get(ticker, "N/A"), # Add the price here
+                "price": price_lookup.get(ticker, "N/A"),
                 "technical_analysis": json.loads(analysis_str),
                 "news": json.loads(news_str)
             })
