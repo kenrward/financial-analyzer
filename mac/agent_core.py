@@ -3,7 +3,7 @@
 import asyncio
 import json
 from langchain_ollama import ChatOllama
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 
 from api_tools import tools
 from langgraph.prebuilt import create_react_agent
@@ -30,7 +30,14 @@ async def run_trading_analysis_workflow(query: str):
     async for event in data_retrieval_agent.astream_events(retrieval_inputs, version="v1"):
         kind = event["event"]
         if kind == "on_tool_end":
-            raw_data_json_string = event["data"].get("output")
+            tool_output = event["data"].get("output")
+            # ✅ --- THE FIX --- ✅
+            # Ensure we get the string content from the ToolMessage object
+            if isinstance(tool_output, ToolMessage):
+                raw_data_json_string = tool_output.content
+            else:
+                raw_data_json_string = str(tool_output)
+
 
     if not raw_data_json_string:
         print("\n--- ❗️ Tool execution failed. Could not retrieve data. ---")
@@ -64,7 +71,7 @@ async def run_trading_analysis_workflow(query: str):
         # Use invoke for a single, non-streamed response
         response = await llm.ainvoke(single_stock_prompt)
         # Clean up the response and print the table row
-        table_row = response.content.strip()
+        table_row = response.content.strip().replace("'", "")
         print(table_row)
 
     print("\n\n✅ --- STEP 2 Complete: Workflow Finished! --- ✅")
