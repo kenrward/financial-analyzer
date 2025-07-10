@@ -4,15 +4,11 @@ import asyncio
 import json
 import logging
 from langchain_ollama import ChatOllama
-from langchain_core.messages import HumanMessage
-# We don't need ToolMessage here anymore
-# from langchain_core.messages import ToolMessage 
 
-from api_tools import tools
-from langgraph.prebuilt import create_react_agent
+# ✅ --- THE FIX: Import the tool function directly --- ✅
+from api_tools import _find_and_analyze_active_stocks
 
 # --- ⚙️ Set up Logging ---
-# ... (logging setup is unchanged) ...
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -27,43 +23,26 @@ OLLAMA_BASE_URL = "http://localhost:11434"
 OLLAMA_MODEL = "llama3.1" 
 llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL, temperature=0.2)
 
-# --- Agent 1: The Data Retriever ---
-data_retrieval_agent = create_react_agent(llm, tools)
 
 # --- The Main Orchestration Function ---
-async def run_trading_analysis_workflow(query: str):
-    logging.info(f"🚀 Kicking off Scalable Agent Workflow with Query: {query}")
+async def run_trading_analysis_workflow(limit: int):
+    logging.info(f"🚀 Kicking off Direct Execution Workflow for top {limit} stocks.")
 
-    # --- STEP 1: Run the Data Retriever agent ---
-    logging.info("STEP 1: Calling data retrieval agent to execute tools...")
-    retrieval_inputs = {"messages": [HumanMessage(content=query)]}
-    raw_data_json_string = ""
-
-    # ✅ --- THE FIX: ADD A TIMEOUT CONFIGURATION --- ✅
-    # Give the agent up to 300 seconds (5 minutes) to finish the tool call
-    agent_config = {"configurable": {"timeout": 300}}
-
-    async for event in data_retrieval_agent.astream_events(
-        retrieval_inputs, 
-        version="v1", 
-        config=agent_config # Pass the config here
-    ):
-        kind = event["event"]
-        if kind == "on_agent_finish":
-            agent_finish_output = event['data'].get('output')
-            if agent_finish_output and agent_finish_output.return_values:
-                 raw_data_json_string = agent_finish_output.return_values.get('output', "")
+    # --- STEP 1: Directly call the data gathering function ---
+    # No agent, no LangGraph, no timeouts. Just a direct, reliable function call.
+    logging.info("STEP 1: Directly executing data gathering and analysis tool...")
+    raw_data_json_string = await _find_and_analyze_active_stocks(limit)
 
     if not raw_data_json_string:
-        logging.error("❗️ Tool execution did not produce a final output string. This could be due to a timeout or an internal tool error.")
+        logging.error("❗️ Tool execution did not produce a final output string.")
         return
 
     logging.info("STEP 1 Complete: Raw data successfully retrieved.")
     logging.debug(f"Full data payload from tool:\n{raw_data_json_string}")
 
     # --- STEP 2: Iteratively Synthesize the data ---
-    # ... (Step 2 logic is unchanged) ...
     logging.info("STEP 2: Starting iterative synthesis of the report...")
+    
     try:
         results_list = json.loads(raw_data_json_string)
         if not results_list:
@@ -76,10 +55,12 @@ async def run_trading_analysis_workflow(query: str):
         logging.error(f"--- Data that failed to parse ---:\n{raw_data_json_string}\n---")
         return
 
+    # Print the markdown table header
     print("\n\n--- FINAL REPORT ---")
     print("| Ticker | Price | Outlook | Justification |")
     print("| :--- | :--- | :--- | :--- |")
 
+    # Loop through each stock's data for synthesis
     for stock_data in results_list:
         single_stock_prompt = f"""
         You are a financial analyst. Your task is to analyze the data for a single stock and provide a one-line summary for a markdown table.
@@ -102,5 +83,6 @@ async def run_trading_analysis_workflow(query: str):
 # --- Main Execution Block ---
 if __name__ == '__main__':
     logging.info("Agent starting up...")
-    initial_user_query = "Give me a full trading analysis of the top 25 most active stocks."
-    asyncio.run(run_trading_analysis_workflow(initial_user_query))
+    # Define how many stocks to analyze here
+    NUM_STOCKS_TO_ANALYZE = 25
+    asyncio.run(run_trading_analysis_workflow(limit=NUM_STOCKS_TO_ANALYZE))
