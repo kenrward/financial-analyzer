@@ -2,7 +2,8 @@
 
 import asyncio
 import json
-import logging # Import the logging library
+import logging
+import os # Import os to use environment variables
 from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage, ToolMessage
 
@@ -10,20 +11,19 @@ from api_tools import tools
 from langgraph.prebuilt import create_react_agent
 
 # --- ⚙️ Set up Logging ---
-# This will create a file named 'agent_run.log' in the same directory.
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("agent_run.log"), # Log to a file
-        logging.StreamHandler() # Also log to the console
+        logging.FileHandler("agent_run.log"),
+        logging.StreamHandler()
     ]
 )
 
 # --- Configuration ---
 OLLAMA_BASE_URL = "http://localhost:11434"
 OLLAMA_MODEL = "llama3.1" 
-llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL, temperature=0.2)
+llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_URL, temperature=0.2)
 
 # --- Agent 1: The Data Retriever ---
 data_retrieval_agent = create_react_agent(llm, tools)
@@ -37,49 +37,57 @@ async def run_trading_analysis_workflow(query: str):
     retrieval_inputs = {"messages": [HumanMessage(content=query)]}
     raw_data_json_string = ""
 
+    # ✅ --- CORRECTED DATA CAPTURE LOGIC --- ✅
     async for event in data_retrieval_agent.astream_events(retrieval_inputs, version="v1"):
         kind = event["event"]
-        if kind == "on_tool_end":
-            tool_output = event["data"].get("output")
-            if isinstance(tool_output, ToolMessage):
-                raw_data_json_string = tool_output.content
-            else:
-                raw_data_json_string = str(tool_output)
+        # We now capture the final output when the agent finishes its entire run
+        if kind == "on_agent_finish":
+            agent_finish_output = event['data'].get('output')
+            if agent_finish_output and agent_finish_output.return_values:
+                 raw_data_json_string = agent_finish_output.return_values.get('output', "")
 
     if not raw_data_json_string:
-        logging.error("❗️ Tool execution failed. Could not retrieve data.")
+        logging.error("❗️ Tool execution did not produce a final output string. Cannot proceed to Step 2.")
         return
 
     logging.info("STEP 1 Complete: Raw data successfully retrieved.")
-    # Log the full raw data to the file for debugging the price issue
     logging.debug(f"Full data payload from tool: {raw_data_json_string}")
-
 
     # --- STEP 2: Iteratively Synthesize the data ---
     logging.info("STEP 2: Starting iterative synthesis of the report...")
-    results_list = json.loads(raw_data_json_string)
     
-    final_report_rows = []
+    try:
+        results_list = json.loads(raw_data_json_string)
+    except json.JSONDecodeError as e:
+        logging.error(f"❗️ Failed to parse JSON data from Step 1. Error: {e}")
+        logging.error(f"--- Data that failed to parse ---:\n{raw_data_json_string}\n---")
+        return
+
+    # ... (The rest of the iterative synthesis logic remains the same) ...
+    # Print the markdown table header first
+    print("\n\n--- FINAL REPORT ---")
+    print("| Ticker | Price | Outlook | Justification |")
+    print("| :--- | :--- | :--- | :--- |")
+
+    # Loop through each stock's data
     for stock_data in results_list:
         single_stock_prompt = f"""
-        You are a financial analyst... (prompt remains the same)
+        You are a financial analyst. Your task is to analyze the data for a single stock and provide a one-line summary for a markdown table.
         The data is: {json.dumps(stock_data)}
-        ...
+
+        Determine if the outlook is Bullish, Bearish, or Neutral based on the technicals and news.
+        
+        Your entire response must be a single markdown table row using the format:
+        | TICKER | $PRICE | Outlook | Justification |
         """
         
         logging.info(f"Synthesizing report for: {stock_data.get('ticker')}")
         response = await llm.ainvoke(single_stock_prompt)
         table_row = response.content.strip().replace("'", "")
-        final_report_rows.append(table_row)
-
-    # --- Print the final formatted table ---
-    print("\n\n--- FINAL REPORT ---")
-    print("| Ticker | Price | Outlook | Justification |")
-    print("| :--- | :--- | :--- | :--- |")
-    for row in final_report_rows:
-        print(row)
+        print(table_row)
 
     logging.info("✅ Workflow Finished!")
+
 
 # --- Main Execution Block ---
 if __name__ == '__main__':
