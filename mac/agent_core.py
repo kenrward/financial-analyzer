@@ -1,96 +1,135 @@
-# agent_core.py
+# api_tools.py
 
 import asyncio
 import json
 import logging
-from langchain_ollama import ChatOllama
-from langchain_core.messages import HumanMessage, ToolMessage
+import os
+import httpx # Use httpx for both sync and async calls
+from langchain.tools import StructuredTool
+from pydantic import BaseModel, Field
 
-from api_tools import tools
-from langgraph.prebuilt import create_react_agent
+# --- Set up logging for this module ---
+log = logging.getLogger(__name__)
 
-# --- ⚙️ Set up Logging ---
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("agent_run.log"),
-        logging.StreamHandler()
-    ]
-)
+# --- Reusable HTTP Clients ---
+# Use a context manager for the async client to ensure it's properly closed.
+# The synchronous client can be module-level.
+sync_client = httpx.Client(verify=False, timeout=60)
 
-# --- Configuration ---
-OLLAMA_BASE_URL = "http://localhost:11434"
-OLLAMA_MODEL = "llama3.1" 
+# --- Base URL Configuration ---
+DATA_API_BASE_URL = "https://tda.kewar.org"
+TA_API_BASE_URL = "https://tta.kewar.org"
 
-llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL, temperature=0.2)
-
-# --- Agent 1: The Data Retriever ---
-data_retrieval_agent = create_react_agent(llm, tools)
-
-# --- The Main Orchestration Function ---
-async def run_trading_analysis_workflow(query: str):
-    logging.info(f"🚀 Kicking off Scalable Agent Workflow with Query: {query}")
-
-    # --- STEP 1: Run the Data Retriever agent ---
-    logging.info("STEP 1: Calling data retrieval agent to execute tools...")
-    retrieval_inputs = {"messages": [HumanMessage(content=query)]}
-    raw_data_json_string = ""
-
-    # ✅ --- CORRECTED DATA CAPTURE LOGIC --- ✅
-    # We must capture the final output when the agent signals it is finished.
-    async for event in data_retrieval_agent.astream_events(retrieval_inputs, version="v1"):
-        kind = event["event"]
-        if kind == "on_agent_finish":
-            agent_finish_output = event['data'].get('output')
-            if agent_finish_output and agent_finish_output.return_values:
-                 raw_data_json_string = agent_finish_output.return_values.get('output', "")
-
-    if not raw_data_json_string:
-        logging.error("❗️ Tool execution did not produce a final output string. Cannot proceed to Step 2.")
-        return
-
-    logging.info("STEP 1 Complete: Raw data successfully retrieved.")
-    logging.debug(f"Full data payload from tool: {raw_data_json_string}")
-
-    # --- STEP 2: Iteratively Synthesize the data ---
-    logging.info("STEP 2: Starting iterative synthesis of the report...")
-    
+# --- Synchronous API Call Helper (for TA API) ---
+def _make_sync_api_call(url: str, method: str = "GET", params: dict = None, json_data: dict = None):
     try:
-        results_list = json.loads(raw_data_json_string)
-    except json.JSONDecodeError as e:
-        logging.error(f"❗️ Failed to parse JSON data from Step 1. Error: {e}")
-        logging.error(f"--- Data that failed to parse ---:\n{raw_data_json_string}\n---")
-        return
+        if method == "POST":
+            response = sync_client.post(url, json=json_data)
+        else: # Default to GET
+            response = sync_client.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+    except httpx.RequestError as e:
+        log.error(f"Sync request failed: {e}")
+        return {"error": str(e)}
+    except httpx.HTTPStatusError as e:
+        log.error(f"Sync HTTP status error: {e.response.status_code} - {e.response.text}")
+        return {"error": f"API Error: {e.response.status_code}", "message": e.response.text}
 
-    # Print the markdown table header first
-    print("\n\n--- FINAL REPORT ---")
-    print("| Ticker | Price | Outlook | Justification |")
-    print("| :--- | :--- | :--- | :--- |")
+# --- Asynchronous API Call Helper (for Polygon API) ---
+async def _make_async_api_call(session, url: str, params: dict = None):
+    try:
+        response = await session.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+    except httpx.RequestError as e:
+        log.error(f"Async request failed: {e}")
+        return {"error": str(e)}
+    except httpx.HTTPStatusError as e:
+        log.error(f"Async HTTP status error: {e.response.status_code} - {e.response.text}")
+        return {"error": f"API Error: {e.response.status_code}", "message": e.response.text}
 
-    # Loop through each stock's data
-    for stock_data in results_list:
-        single_stock_prompt = f"""
-        You are a financial analyst. Your task is to analyze the data for a single stock and provide a one-line summary for a markdown table.
-        The data is: {json.dumps(stock_data)}
+# --- Component Functions (some now async) ---
+async def _get_most_active_stocks(session, limit: int = 100):
+    url = f"{DATA_API_BASE_URL}/most-active-stocks"
+    return await _make_async_api_call(session, url, params={"limit": limit})
 
-        Determine if the outlook is Bullish, Bearish, or Neutral based on the technicals and news.
+async def _get_ticker_details(session, ticker: str):
+    url = f"https://api.polygon.io/v3/reference/tickers/{ticker}"
+    params = {"apiKey": os.getenv("POLYGON_API_KEY")}
+    return await _make_async_api_call(session, url, params=params)
+
+async def _get_news_for_ticker(session, ticker: str, days: int = 7):
+    url = f"{DATA_API_BASE_URL}/news/{ticker}"
+    params = {"days": days}
+    return await _make_async_api_call(session, url, params=params)
+
+def _run_technical_analysis(ticker: str, historical_data_json: str):
+    # This remains synchronous as it calls the other local service
+    url = f"{TA_API_BASE_URL}/analyze"
+    data_payload = json.loads(historical_data_json)
+    return _make_sync_api_call(url, method="POST", json_data=data_payload)
+
+# --- The "Super-Tool" - Fully Asynchronous and Optimized ---
+async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
+    log.info(f"🚀 Kicking off full analysis for top {limit} stocks")
+    async with httpx.AsyncClient(verify=False, timeout=60) as session:
+        # Step 1: Get active stocks
+        active_stocks_data = await _get_most_active_stocks(session, limit)
+        if "error" in active_stocks_data or not active_stocks_data.get("top_stocks"):
+            return json.dumps({"error": "Could not retrieve active stocks."})
+
+        active_stocks = active_stocks_data["top_stocks"]
+        price_lookup = {stock['ticker']: stock.get('close_price') for stock in active_stocks}
+        log.info(f"Found {len(active_stocks)} active stocks. Filtering for optionable tickers...")
+
+        # Step 2: Concurrently check for optionability
+        details_tasks = [_get_ticker_details(session, stock['ticker']) for stock in active_stocks]
+        details_results = await asyncio.gather(*details_tasks)
+
+        optionable_tickers = [
+            active_stocks[i]['ticker']
+            for i, details in enumerate(details_results)
+            if details and details.get('results', {}).get('options', {}).get('optionable')
+        ]
+        log.info(f"Found {len(optionable_tickers)} optionable stocks: {optionable_tickers}")
+
+        # Step 3: Concurrently fetch data for optionable stocks
+        log.info("Fetching historical data and news concurrently...")
+        # Get historical data first to pass to TA
+        history_tasks = {ticker: asyncio.to_thread(sync_client.get(f"{DATA_API_BASE_URL}/historical-data/{ticker}").text) for ticker in optionable_tickers}
+        news_tasks = {ticker: _get_news_for_ticker(session, ticker) for ticker in optionable_tickers}
         
-        Your entire response must be a single markdown table row using the format:
-        | TICKER | $PRICE | Outlook | Justification |
-        """
+        history_responses = await asyncio.gather(*history_tasks.values())
+        news_responses = await asyncio.gather(*news_tasks.values())
         
-        logging.info(f"Synthesizing report for: {stock_data.get('ticker')}")
-        response = await llm.ainvoke(single_stock_prompt)
-        table_row = response.content.strip().replace("'", "")
-        print(table_row)
+        history_map = {ticker: resp for ticker, resp in zip(history_tasks.keys(), history_responses)}
+        news_map = {ticker: resp for ticker, resp in zip(news_tasks.keys(), news_responses)}
 
-    logging.info("✅ Workflow Finished!")
+        # Step 4: Run TA and compile results
+        log.info("Running technical analysis and compiling final report...")
+        final_results = []
+        for ticker in optionable_tickers:
+            ta_result = await asyncio.to_thread(_run_technical_analysis, ticker, history_map[ticker])
+            final_results.append({
+                "ticker": ticker,
+                "price": price_lookup.get(ticker, "N/A"),
+                "technical_analysis": ta_result,
+                "news": news_map[ticker]
+            })
 
+    return json.dumps(final_results, indent=2)
 
-# --- Main Execution Block ---
-if __name__ == '__main__':
-    logging.info("Agent starting up...")
-    logging.info(f"Ollama Model: {OLLAMA_MODEL} at {OLLAMA_BASE_URL}")
-    initial_user_query = "Give me a full trading analysis of the top 25 most active stocks."
-    asyncio.run(run_trading_analysis_workflow(initial_user_query))
+# --- Pydantic Schema and Tool Definition ---
+class FindAndAnalyzeActiveStocksInput(BaseModel):
+    limit: int = Field(5, description="The number of top active stocks to analyze.")
+
+tools = [
+    StructuredTool.from_function(
+        func=_find_and_analyze_active_stocks,
+        name="find_and_analyze_top_stocks",
+        description="The primary tool to get a full trading analysis...",
+        args_schema=FindAndAnalyzeActiveStocksInput,
+        coroutine=_find_and_analyze_active_stocks
+    )
+]
