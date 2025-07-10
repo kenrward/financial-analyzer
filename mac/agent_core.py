@@ -2,16 +2,26 @@
 
 import asyncio
 import json
+import logging
 from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage, ToolMessage
 
 from api_tools import tools
 from langgraph.prebuilt import create_react_agent
 
+# --- ⚙️ Set up Logging ---
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("agent_run.log"),
+        logging.StreamHandler()
+    ]
+)
 
 # --- Configuration ---
 OLLAMA_BASE_URL = "http://localhost:11434"
-OLLAMA_MODEL = "llama3.3" 
+OLLAMA_MODEL = "llama3.1" 
 
 llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL, temperature=0.2)
 
@@ -22,9 +32,11 @@ data_retrieval_agent = create_react_agent(llm, tools)
 # --- The Main Orchestration Function ---
 async def run_trading_analysis_workflow(query: str):
     print(f"\n🚀 --- Kicking off Scalable Agent Workflow --- 🚀\nInitial Query: {query}\n")
+    logging.info(f"🚀 Kicking off Scalable Agent Workflow with Query: {query}")
 
     # --- STEP 1: Run the Data Retriever agent to get all the raw data at once ---
     print("--- STEP 1: Calling data retrieval agent to execute tools... ---")
+    logging.info("STEP 1: Calling data retrieval agent to execute tools...")
     retrieval_inputs = {"messages": [HumanMessage(content=query)]}
     raw_data_json_string = ""
 
