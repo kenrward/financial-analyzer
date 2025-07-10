@@ -31,11 +31,9 @@ data_retrieval_agent = create_react_agent(llm, tools)
 
 # --- The Main Orchestration Function ---
 async def run_trading_analysis_workflow(query: str):
-    print(f"\n🚀 --- Kicking off Scalable Agent Workflow --- 🚀\nInitial Query: {query}\n")
     logging.info(f"🚀 Kicking off Scalable Agent Workflow with Query: {query}")
 
     # --- STEP 1: Run the Data Retriever agent to get all the raw data at once ---
-    print("--- STEP 1: Calling data retrieval agent to execute tools... ---")
     logging.info("STEP 1: Calling data retrieval agent to execute tools...")
     retrieval_inputs = {"messages": [HumanMessage(content=query)]}
     raw_data_json_string = ""
@@ -53,13 +51,13 @@ async def run_trading_analysis_workflow(query: str):
 
 
     if not raw_data_json_string:
-        print("\n--- ❗️ Tool execution failed. Could not retrieve data. ---")
+        logging.info("\n--- ❗️ Tool execution failed. Could not retrieve data. ---")
         return
 
-    print("\n\n--- STEP 1 Complete: Raw data successfully retrieved. ---")
+    logging.info("\n\n--- STEP 1 Complete: Raw data successfully retrieved. ---")
 
     # --- STEP 2: Iteratively Synthesize the data, one stock at a time ---
-    print("\n--- STEP 2: Starting iterative synthesis of the report... ---")
+    logging.info("\n--- STEP 2: Starting iterative synthesis of the report... ---")
     
     # Parse the full JSON string into a Python list
     results_list = json.loads(raw_data_json_string)
@@ -87,13 +85,13 @@ async def run_trading_analysis_workflow(query: str):
         table_row = response.content.strip().replace("'", "")
         print(table_row)
 
-    print("\n\n✅ --- STEP 2 Complete: Workflow Finished! --- ✅")
+    logging.info("\n\n✅ --- STEP 2 Complete: Workflow Finished! --- ✅")
 
 
 # --- Main Execution Block ---
 if __name__ == '__main__':
-    print("Starting agent...")
-    print(f"Ollama Model: {OLLAMA_MODEL} at {OLLAMA_BASE_URL}")
+    logging.info("Starting agent...")
+    logging.info(f"Ollama Model: {OLLAMA_MODEL} at {OLLAMA_BASE_URL}")
 
     # The user's query determines how many stocks the tool will fetch.
     initial_user_query = "Give me a full trading analysis of the top 25 most active stocks."
