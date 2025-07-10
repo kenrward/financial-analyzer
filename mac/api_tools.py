@@ -11,49 +11,73 @@ from pydantic import BaseModel, Field
 log = logging.getLogger(__name__)
 
 # --- Reusable HTTP Client ---
-sync_client = httpx.Client(verify=False, timeout=60)
+async_client = httpx.AsyncClient(verify=False, timeout=60)
 
 # --- Base URL Configuration ---
 DATA_API_BASE_URL = "https://tda.kewar.org"
 TA_API_BASE_URL = "https://tta.kewar.org"
 
-# --- Component Functions (Synchronous for this test) ---
-def _get_most_active_stocks(limit: int = 100):
+# --- Component Functions ---
+async def _get_most_active_stocks(limit: int = 100):
     url = f"{DATA_API_BASE_URL}/most-active-stocks"
-    response = sync_client.get(url, params={"limit": limit})
-    response.raise_for_status()
-    return response.json()
+    try:
+        response = await async_client.get(url, params={"limit": limit})
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        log.error(f"Failed to get active stocks: {e}")
+        return {"error": "Failed to get active stocks"}
 
-def _get_ticker_details(ticker: str):
-    url = f"https://api.polygon.io/v3/reference/tickers/{ticker}"
-    params = {"apiKey": os.getenv("POLYGON_API_KEY")}
-    response = sync_client.get(url, params=params)
-    response.raise_for_status()
-    return response.json()
+async def _is_ticker_optionable(ticker: str) -> bool:
+    """Checks if a ticker has an options market using the Tickers endpoint."""
+    url = "https://api.polygon.io/v3/reference/tickers"
+    params = {
+        "ticker": ticker,
+        "market": "options",
+        "active": "true",
+        "apiKey": os.getenv("POLYGON_API_KEY")
+    }
+    try:
+        response = await async_client.get(url, params=params)
+        response.raise_for_status()
+        data = response.json()
+        # If the results list is not empty, it means an options ticker was found.
+        return len(data.get("results", [])) > 0
+    except Exception as e:
+        log.error(f"Could not check optionability for {ticker}: {e}")
+        return False
 
-def _get_news_for_ticker(ticker: str, days: int = 7):
+async def _get_news_for_ticker(ticker: str, days: int = 7):
     url = f"{DATA_API_BASE_URL}/news/{ticker}"
     params = {"days": days}
-    response = sync_client.get(url, params=params)
-    response.raise_for_status()
-    return response.json()
+    try:
+        response = await async_client.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        log.error(f"Failed to get news for {ticker}: {e}")
+        return {"error": f"Failed news for {ticker}"}
+        
+async def _get_and_analyze_ticker(ticker: str, days: int = 90):
+    try:
+        async with httpx.AsyncClient(verify=False) as session:
+            hist_url = f"{DATA_API_BASE_URL}/historical-data/{ticker}"
+            hist_response = await session.get(hist_url, params={"days": days})
+            hist_response.raise_for_status()
+            
+            ta_url = f"{TA_API_BASE_URL}/analyze"
+            ta_response = await session.post(ta_url, json=hist_response.json())
+            ta_response.raise_for_status()
+            return ta_response.json()
+    except Exception as e:
+        log.error(f"Failed analysis for {ticker}: {e}")
+        return {"error": f"Failed TA for {ticker}"}
 
-def _get_and_analyze_ticker(ticker: str, days: int = 90):
-    hist_url = f"{DATA_API_BASE_URL}/historical-data/{ticker}"
-    hist_response = sync_client.get(hist_url, params={"days": days})
-    hist_response.raise_for_status()
-    
-    ta_url = f"{TA_API_BASE_URL}/analyze"
-    ta_response = sync_client.post(ta_url, json=hist_response.json())
-    ta_response.raise_for_status()
-    return ta_response.json()
-
-# --- The "Super-Tool" (Simplified for debugging) ---
+# --- The "Super-Tool" - Fully Asynchronous and Optimized ---
 async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
-    log.info(f"🚀 [Debug Mode] Kicking off analysis for top {limit} stocks")
+    log.info(f"🚀 Kicking off full analysis for top {limit} stocks")
     
-    active_stocks_data = await asyncio.to_thread(_get_most_active_stocks, limit)
-    
+    active_stocks_data = await _get_most_active_stocks(limit)
     if "error" in active_stocks_data or not active_stocks_data.get("top_stocks"):
         return json.dumps({"error": "Could not retrieve active stocks."})
 
@@ -61,26 +85,33 @@ async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
     price_lookup = {stock['ticker']: stock.get('close_price') for stock in active_stocks}
     log.info(f"Found {len(active_stocks)} active stocks. Filtering for optionable tickers...")
 
-    optionable_tickers = []
-    for stock in active_stocks:
-        ticker = stock['ticker']
-        try:
-            details = await asyncio.to_thread(_get_ticker_details, ticker)
-            
-            # --- ✅ THE IMPORTANT DEBUGGING LINE ---
-            if ticker == 'NVDA':
-                log.info(f"DEBUG INFO FOR NVDA: {json.dumps(details, indent=2)}")
-
-            # The original filtering logic we are testing
-            if isinstance(details, dict) and details.get('results', {}).get('options', {}).get('optionable'):
-                optionable_tickers.append(ticker)
-        except Exception as e:
-            log.error(f"Could not get details for {ticker}: {e}")
-
-    log.info(f"Found {len(optionable_tickers)} optionable stocks: {optionable_tickers}")
+    # Concurrently check for optionability
+    optionable_tasks = {stock['ticker']: _is_ticker_optionable(stock['ticker']) for stock in active_stocks}
+    optionable_results = await asyncio.gather(*optionable_tasks.values())
     
-    # We will stop here and return an empty list for this test
-    return json.dumps([], indent=2)
+    optionable_tickers = [ticker for ticker, is_optionable in zip(optionable_tasks.keys(), optionable_results) if is_optionable]
+    log.info(f"Found {len(optionable_tickers)} optionable stocks: {optionable_tickers}")
+
+    # Concurrently fetch analysis and news for the filtered list
+    analysis_tasks = {ticker: _get_and_analyze_ticker(ticker) for ticker in optionable_tickers}
+    news_tasks = {ticker: _get_news_for_ticker(ticker) for ticker in optionable_tickers}
+    
+    analysis_results = await asyncio.gather(*analysis_tasks.values())
+    news_results = await asyncio.gather(*news_tasks.values())
+    
+    analysis_map = {ticker: res for ticker, res in zip(analysis_tasks.keys(), analysis_results)}
+    news_map = {ticker: res for ticker, res in zip(news_tasks.keys(), news_results)}
+
+    final_results = []
+    for ticker in optionable_tickers:
+        final_results.append({
+            "ticker": ticker,
+            "price": price_lookup.get(ticker, "N/A"),
+            "technical_analysis": analysis_map.get(ticker),
+            "news": news_map.get(ticker)
+        })
+
+    return json.dumps(final_results, indent=2)
 
 # --- Pydantic Schema and Tool Definition ---
 class FindAndAnalyzeActiveStocksInput(BaseModel):
@@ -90,7 +121,7 @@ tools = [
     StructuredTool.from_function(
         func=_find_and_analyze_active_stocks,
         name="find_and_analyze_top_stocks",
-        description="The primary tool to get a full trading analysis...",
+        description="The primary tool to get a full trading analysis for optionable stocks.",
         args_schema=FindAndAnalyzeActiveStocksInput,
         coroutine=_find_and_analyze_active_stocks
     )
