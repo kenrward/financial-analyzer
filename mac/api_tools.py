@@ -1,89 +1,8 @@
-# api_tools.py
+# In api_tools.py
 
-import asyncio
-import json
-import logging
-import os
-import httpx
-from langchain.tools import StructuredTool
-from pydantic import BaseModel, Field
-from polygon import RESTClient # Import the official Polygon client
+# ... (all other code and imports remain the same) ...
 
-log = logging.getLogger(__name__)
-
-# --- Reusable HTTP and Polygon Clients ---
-async_client = httpx.AsyncClient(verify=False, timeout=60)
-# Create an instance of the official Polygon client
-polygon_client = RESTClient(os.getenv("POLYGON_API_KEY"))
-
-# --- Base URL Configuration ---
-DATA_API_BASE_URL = "https://tda.kewar.org"
-TA_API_BASE_URL = "https://tta.kewar.org"
-
-
-# --- ✅ The New, More Reliable Optionable Check ---
-def _check_options_sync(ticker: str) -> bool:
-    """Synchronous helper to check for option contracts."""
-    try:
-        # We only need to know if at least ONE contract exists. limit=1 is a key optimization.
-        contracts = polygon_client.list_options_contracts(underlying_ticker=ticker, limit=1)
-        # The client returns an iterator. We try to get the first item.
-        # If it succeeds, options exist. If it raises StopIteration, the list is empty.
-        next(contracts)
-        return True
-    except StopIteration:
-        # This is the expected result for a stock with no options
-        return False
-    except Exception as e:
-        log.error(f"Polygon client error checking options for {ticker}: {e}")
-        return False
-
-async def _is_ticker_optionable(ticker: str) -> bool:
-    """Asynchronously checks if a ticker is optionable."""
-    return await asyncio.to_thread(_check_options_sync, ticker)
-
-
-# --- Component Functions (Unchanged) ---
-async def _get_most_active_stocks(limit: int = 100):
-    url = f"{DATA_API_BASE_URL}/most-active-stocks"
-    try:
-        response = await async_client.get(url, params={"limit": limit})
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        log.error(f"Failed to get active stocks: {e}")
-        return {"error": "Failed to get active stocks"}
-
-async def _get_news_for_ticker(ticker: str, days: int = 7):
-    # ... (function is unchanged)
-    url = f"{DATA_API_BASE_URL}/news/{ticker}"
-    params = {"days": days}
-    try:
-        response = await async_client.get(url, params=params)
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        log.error(f"Failed to get news for {ticker}: {e}")
-        return {"error": f"Failed news for {ticker}"}
-        
-async def _get_and_analyze_ticker(ticker: str, days: int = 90):
-    # ... (function is unchanged)
-    try:
-        async with httpx.AsyncClient(verify=False) as session:
-            hist_url = f"{DATA_API_BASE_URL}/historical-data/{ticker}"
-            hist_response = await session.get(hist_url, params={"days": days})
-            hist_response.raise_for_status()
-            
-            ta_url = f"{TA_API_BASE_URL}/analyze"
-            ta_response = await session.post(ta_url, json=hist_response.json())
-            ta_response.raise_for_status()
-            return ta_response.json()
-    except Exception as e:
-        log.error(f"Failed analysis for {ticker}: {e}")
-        return {"error": f"Failed TA for {ticker}"}
-
-
-# --- The "Super-Tool" (Now using the new optionable check) ---
+# --- The "Super-Tool" - Now with Rate Limiting ---
 async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
     log.info(f"🚀 Kicking off full analysis for top {limit} stocks")
     
@@ -95,14 +14,32 @@ async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
     price_lookup = {stock['ticker']: stock.get('close_price') for stock in active_stocks}
     log.info(f"Found {len(active_stocks)} active stocks. Filtering for optionable tickers...")
 
-    # Concurrently check for optionability using the new, reliable method
-    optionable_tasks = {stock['ticker']: _is_ticker_optionable(stock['ticker']) for stock in active_stocks}
-    optionable_results = await asyncio.gather(*optionable_tasks.values())
-    
-    optionable_tickers = [ticker for ticker, is_optionable in zip(optionable_tasks.keys(), optionable_results) if is_optionable]
+    # --- ✅ RATE LIMITING LOGIC ---
+    # Process optionable checks sequentially to respect the 5 calls/minute limit.
+    optionable_tickers = []
+    for stock in active_stocks:
+        ticker = stock['ticker']
+        log.info(f"Checking optionability for {ticker}...")
+        
+        is_optionable = await _is_ticker_optionable(ticker)
+        if is_optionable:
+            log.info(f"✅ {ticker} is optionable.")
+            optionable_tickers.append(ticker)
+        else:
+            log.info(f"Skipping {ticker} (not optionable).")
+            
+        # Wait for 13 seconds to stay under the 5 calls/minute limit (60 / 5 = 12)
+        log.info("Waiting 13 seconds before next check...")
+        await asyncio.sleep(13)
+
     log.info(f"Found {len(optionable_tickers)} optionable stocks: {optionable_tickers}")
 
-    # ... (The rest of the function to analyze and fetch news remains the same) ...
+    if not optionable_tickers:
+        return json.dumps([], indent=2)
+
+    # Concurrently fetch analysis and news for the filtered list
+    # This part remains fast because it calls your local APIs, not Polygon
+    log.info("Fetching analysis and news for optionable stocks...")
     analysis_tasks = {ticker: _get_and_analyze_ticker(ticker) for ticker in optionable_tickers}
     news_tasks = {ticker: _get_news_for_ticker(ticker) for ticker in optionable_tickers}
     
@@ -122,18 +59,3 @@ async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
         })
 
     return json.dumps(final_results, indent=2)
-
-
-# --- Pydantic Schema and Tool Definition (Unchanged) ---
-class FindAndAnalyzeActiveStocksInput(BaseModel):
-    limit: int = Field(5, description="The number of top active stocks to analyze.")
-
-tools = [
-    StructuredTool.from_function(
-        func=_find_and_analyze_active_stocks,
-        name="find_and_analyze_top_stocks",
-        description="The primary tool to get a full trading analysis for optionable stocks.",
-        args_schema=FindAndAnalyzeActiveStocksInput,
-        coroutine=_find_and_analyze_active_stocks
-    )
-]
