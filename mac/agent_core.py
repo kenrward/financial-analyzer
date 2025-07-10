@@ -13,16 +13,13 @@ from api_tools import _find_and_analyze_active_stocks
 
 # --- ⚙️ Set up Logging ---
 logging.basicConfig(
-    level=logging.ERROR,
+    level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("agent_run.log"),
-
-        
-        logging.StreamHandler()
+        logging.FileHandler("agent_run.log")
+        # logging.StreamHandler() # Commented out to keep the console clean
     ]
 )
-
 # --- Configuration ---
 OLLAMA_BASE_URL = "http://localhost:11434"
 OLLAMA_MODEL = "llama3.1" 
