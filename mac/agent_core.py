@@ -10,7 +10,7 @@ from langgraph.prebuilt import create_react_agent
 
 # --- Configuration ---
 OLLAMA_BASE_URL = "http://localhost:11434"
-OLLAMA_MODEL = "command-r-plus:latest" #"llama3.1" 
+OLLAMA_MODEL = "deepseek-r1" #"llama3.1" 
 
 llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL, temperature=0.2)
 
