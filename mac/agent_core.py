@@ -4,12 +4,15 @@ import asyncio
 import json
 import logging
 from langchain_ollama import ChatOllama
-from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.messages import HumanMessage
+# We don't need ToolMessage here anymore
+# from langchain_core.messages import ToolMessage 
 
 from api_tools import tools
 from langgraph.prebuilt import create_react_agent
 
 # --- ⚙️ Set up Logging ---
+# ... (logging setup is unchanged) ...
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -36,7 +39,15 @@ async def run_trading_analysis_workflow(query: str):
     retrieval_inputs = {"messages": [HumanMessage(content=query)]}
     raw_data_json_string = ""
 
-    async for event in data_retrieval_agent.astream_events(retrieval_inputs, version="v1"):
+    # ✅ --- THE FIX: ADD A TIMEOUT CONFIGURATION --- ✅
+    # Give the agent up to 300 seconds (5 minutes) to finish the tool call
+    agent_config = {"configurable": {"timeout": 300}}
+
+    async for event in data_retrieval_agent.astream_events(
+        retrieval_inputs, 
+        version="v1", 
+        config=agent_config # Pass the config here
+    ):
         kind = event["event"]
         if kind == "on_agent_finish":
             agent_finish_output = event['data'].get('output')
@@ -44,17 +55,22 @@ async def run_trading_analysis_workflow(query: str):
                  raw_data_json_string = agent_finish_output.return_values.get('output', "")
 
     if not raw_data_json_string:
-        logging.error("❗️ Tool execution did not produce a final output string. Cannot proceed to Step 2.")
+        logging.error("❗️ Tool execution did not produce a final output string. This could be due to a timeout or an internal tool error.")
         return
 
     logging.info("STEP 1 Complete: Raw data successfully retrieved.")
-    logging.debug(f"Full data payload from tool: {raw_data_json_string}")
+    logging.debug(f"Full data payload from tool:\n{raw_data_json_string}")
 
     # --- STEP 2: Iteratively Synthesize the data ---
+    # ... (Step 2 logic is unchanged) ...
     logging.info("STEP 2: Starting iterative synthesis of the report...")
-    
     try:
         results_list = json.loads(raw_data_json_string)
+        if not results_list:
+            logging.warning("No optionable stocks were found to analyze.")
+            print("\n\n--- FINAL REPORT ---")
+            print("No optionable stocks found among the most active stocks.")
+            return
     except json.JSONDecodeError as e:
         logging.error(f"❗️ Failed to parse JSON data from Step 1. Error: {e}")
         logging.error(f"--- Data that failed to parse ---:\n{raw_data_json_string}\n---")
@@ -66,8 +82,13 @@ async def run_trading_analysis_workflow(query: str):
 
     for stock_data in results_list:
         single_stock_prompt = f"""
-        You are a financial analyst... Your entire response must be a single markdown table row...
+        You are a financial analyst. Your task is to analyze the data for a single stock and provide a one-line summary for a markdown table.
         The data is: {json.dumps(stock_data)}
+
+        Determine if the outlook is Bullish, Bearish, or Neutral based on the technicals and news.
+        
+        Your entire response must be a single markdown table row using the format:
+        | TICKER | $PRICE | Outlook | Justification |
         """
         
         logging.info(f"Synthesizing report for: {stock_data.get('ticker')}")
@@ -81,6 +102,5 @@ async def run_trading_analysis_workflow(query: str):
 # --- Main Execution Block ---
 if __name__ == '__main__':
     logging.info("Agent starting up...")
-    logging.info(f"Ollama Model: {OLLAMA_MODEL} at {OLLAMA_BASE_URL}")
     initial_user_query = "Give me a full trading analysis of the top 25 most active stocks."
     asyncio.run(run_trading_analysis_workflow(initial_user_query))
