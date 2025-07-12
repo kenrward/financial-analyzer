@@ -9,3 +9,5 @@ __pycache__/
 
 # Ignore data files
 data/
+
+agent_run.log
