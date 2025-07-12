@@ -1,0 +1,23 @@
+# requirements.txt
+
+# Core Agent, LLM, and Async
+langchain
+langchain-core
+langchain-ollama
+langgraph
+nest_asyncio
+
+# API Services & Web Server
+flask
+gunicorn
+
+# Data Handling & Analysis
+pandas
+pyarrow
+ta
+polygon-api-client
+
+# Utilities & API Calls
+httpx
+pydantic
+python-dotenv
