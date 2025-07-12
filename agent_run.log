@@ -935,3 +935,157 @@ For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/St
 2025-07-11 21:30:45,863 - ERROR - Failed to get active stocks: 
 2025-07-11 21:30:45,865 - INFO - STEP 1 Complete: Raw data successfully retrieved.
 2025-07-11 21:30:45,865 - INFO - STEP 2: Starting iterative synthesis of the report...
+2025-07-12 08:13:42,482 - INFO - Agent starting up...
+2025-07-12 08:13:42,482 - INFO - 🚀 Kicking off Direct Execution Workflow for top 25 stocks.
+2025-07-12 08:13:42,482 - INFO - STEP 1: Directly executing data gathering and analysis tool...
+2025-07-12 08:13:42,482 - INFO - 🚀 Kicking off full analysis for top 25 stocks
+2025-07-12 08:13:42,962 - INFO - HTTP Request: GET https://tda.kewar.org/most-active-stocks?limit=25 "HTTP/1.1 200 OK"
+2025-07-12 08:13:42,965 - INFO - Found 25 active stocks. Filtering for optionable tickers...
+2025-07-12 08:13:43,127 - INFO - HTTP Request: GET https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=BTOG&limit=1&apiKey=QD09m1cIkbs_zkBwuhGV4tMaR4rUNzfu "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,128 - INFO - HTTP Request: GET https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=AZI&limit=1&apiKey=QD09m1cIkbs_zkBwuhGV4tMaR4rUNzfu "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,136 - INFO - HTTP Request: GET https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=NIO&limit=1&apiKey=QD09m1cIkbs_zkBwuhGV4tMaR4rUNzfu "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,145 - INFO - HTTP Request: GET https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=OPEN&limit=1&apiKey=QD09m1cIkbs_zkBwuhGV4tMaR4rUNzfu "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,151 - INFO - HTTP Request: GET https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=ABVE&limit=1&apiKey=QD09m1cIkbs_zkBwuhGV4tMaR4rUNzfu "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,151 - INFO - HTTP Request: GET https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=NCNA&limit=1&apiKey=QD09m1cIkbs_zkBwuhGV4tMaR4rUNzfu "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,161 - INFO - HTTP Request: GET https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=WLGS&limit=1&apiKey=QD09m1cIkbs_zkBwuhGV4tMaR4rUNzfu "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,161 - INFO - HTTP Request: GET https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=HCTI&limit=1&apiKey=QD09m1cIkbs_zkBwuhGV4tMaR4rUNzfu "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,162 - INFO - HTTP Request: GET https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=BBAI&limit=1&apiKey=QD09m1cIkbs_zkBwuhGV4tMaR4rUNzfu "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,164 - INFO - HTTP Request: GET https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=MULN&limit=1&apiKey=QD09m1cIkbs_zkBwuhGV4tMaR4rUNzfu "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,165 - INFO - HTTP Request: GET https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=NVDA&limit=1&apiKey=QD09m1cIkbs_zkBwuhGV4tMaR4rUNzfu "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,169 - INFO - HTTP Request: GET https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=ZBAI&limit=1&apiKey=QD09m1cIkbs_zkBwuhGV4tMaR4rUNzfu "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,174 - INFO - HTTP Request: GET https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=SOXS&limit=1&apiKey=QD09m1cIkbs_zkBwuhGV4tMaR4rUNzfu "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,182 - INFO - HTTP Request: GET https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=SGN&limit=1&apiKey=QD09m1cIkbs_zkBwuhGV4tMaR4rUNzfu "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,183 - INFO - HTTP Request: GET https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=GIBO&limit=1&apiKey=QD09m1cIkbs_zkBwuhGV4tMaR4rUNzfu "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,190 - INFO - HTTP Request: GET https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=TSLL&limit=1&apiKey=QD09m1cIkbs_zkBwuhGV4tMaR4rUNzfu "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,196 - INFO - HTTP Request: GET https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=FAAS&limit=1&apiKey=QD09m1cIkbs_zkBwuhGV4tMaR4rUNzfu "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,205 - INFO - HTTP Request: GET https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=FTFT&limit=1&apiKey=QD09m1cIkbs_zkBwuhGV4tMaR4rUNzfu "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,206 - INFO - HTTP Request: GET https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=LCID&limit=1&apiKey=QD09m1cIkbs_zkBwuhGV4tMaR4rUNzfu "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,208 - INFO - HTTP Request: GET https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=IBIT&limit=1&apiKey=QD09m1cIkbs_zkBwuhGV4tMaR4rUNzfu "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,213 - INFO - HTTP Request: GET https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=SOFI&limit=1&apiKey=QD09m1cIkbs_zkBwuhGV4tMaR4rUNzfu "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,217 - INFO - HTTP Request: GET https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=AAL&limit=1&apiKey=QD09m1cIkbs_zkBwuhGV4tMaR4rUNzfu "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,224 - INFO - HTTP Request: GET https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=SQQQ&limit=1&apiKey=QD09m1cIkbs_zkBwuhGV4tMaR4rUNzfu "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,256 - INFO - HTTP Request: GET https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=TSLA&limit=1&apiKey=QD09m1cIkbs_zkBwuhGV4tMaR4rUNzfu "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,265 - INFO - HTTP Request: GET https://api.polygon.io/v3/reference/options/contracts?underlying_ticker=SOXL&limit=1&apiKey=QD09m1cIkbs_zkBwuhGV4tMaR4rUNzfu "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,266 - INFO - Found 15 optionable stocks: ['SOXS', 'NVDA', 'OPEN', 'NIO', 'MULN', 'BBAI', 'TSLL', 'FTFT', 'SOFI', 'LCID', 'AAL', 'TSLA', 'IBIT', 'SQQQ', 'SOXL']
+2025-07-12 08:13:43,408 - INFO - HTTP Request: GET https://tda.kewar.org/historical-data/NVDA?days=90 "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,514 - INFO - HTTP Request: POST https://tta.kewar.org/analyze "HTTP/1.1 502 Bad Gateway"
+2025-07-12 08:13:43,515 - ERROR - Failed analysis for NVDA: Server error '502 Bad Gateway' for url 'https://tta.kewar.org/analyze'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/502
+2025-07-12 08:13:43,632 - INFO - HTTP Request: GET https://tda.kewar.org/historical-data/NIO?days=90 "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,697 - INFO - HTTP Request: POST https://tta.kewar.org/analyze "HTTP/1.1 502 Bad Gateway"
+2025-07-12 08:13:43,698 - ERROR - Failed analysis for NIO: Server error '502 Bad Gateway' for url 'https://tta.kewar.org/analyze'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/502
+2025-07-12 08:13:43,717 - INFO - HTTP Request: GET https://tda.kewar.org/historical-data/IBIT?days=90 "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,719 - INFO - HTTP Request: GET https://tda.kewar.org/historical-data/OPEN?days=90 "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,720 - INFO - HTTP Request: GET https://tda.kewar.org/historical-data/TSLL?days=90 "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,720 - INFO - HTTP Request: GET https://tda.kewar.org/historical-data/AAL?days=90 "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,721 - INFO - HTTP Request: GET https://tda.kewar.org/historical-data/SQQQ?days=90 "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,729 - INFO - HTTP Request: GET https://tda.kewar.org/historical-data/SOXS?days=90 "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,743 - INFO - HTTP Request: GET https://tda.kewar.org/historical-data/BBAI?days=90 "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,750 - INFO - HTTP Request: GET https://tda.kewar.org/historical-data/SOXL?days=90 "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,772 - INFO - HTTP Request: GET https://tda.kewar.org/historical-data/MULN?days=90 "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,782 - INFO - HTTP Request: GET https://tda.kewar.org/historical-data/FTFT?days=90 "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,783 - INFO - HTTP Request: GET https://tda.kewar.org/historical-data/TSLA?days=90 "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,783 - INFO - HTTP Request: GET https://tda.kewar.org/historical-data/LCID?days=90 "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,784 - INFO - HTTP Request: GET https://tda.kewar.org/historical-data/SOFI?days=90 "HTTP/1.1 200 OK"
+2025-07-12 08:13:43,815 - INFO - HTTP Request: POST https://tta.kewar.org/analyze "HTTP/1.1 502 Bad Gateway"
+2025-07-12 08:13:43,815 - INFO - HTTP Request: POST https://tta.kewar.org/analyze "HTTP/1.1 502 Bad Gateway"
+2025-07-12 08:13:43,817 - ERROR - Failed analysis for IBIT: Server error '502 Bad Gateway' for url 'https://tta.kewar.org/analyze'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/502
+2025-07-12 08:13:43,817 - ERROR - Failed analysis for OPEN: Server error '502 Bad Gateway' for url 'https://tta.kewar.org/analyze'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/502
+2025-07-12 08:13:43,817 - INFO - HTTP Request: POST https://tta.kewar.org/analyze "HTTP/1.1 502 Bad Gateway"
+2025-07-12 08:13:43,818 - ERROR - Failed analysis for TSLL: Server error '502 Bad Gateway' for url 'https://tta.kewar.org/analyze'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/502
+2025-07-12 08:13:43,822 - INFO - HTTP Request: POST https://tta.kewar.org/analyze "HTTP/1.1 502 Bad Gateway"
+2025-07-12 08:13:43,822 - INFO - HTTP Request: POST https://tta.kewar.org/analyze "HTTP/1.1 502 Bad Gateway"
+2025-07-12 08:13:43,823 - INFO - HTTP Request: POST https://tta.kewar.org/analyze "HTTP/1.1 502 Bad Gateway"
+2025-07-12 08:13:43,826 - ERROR - Failed analysis for AAL: Server error '502 Bad Gateway' for url 'https://tta.kewar.org/analyze'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/502
+2025-07-12 08:13:43,827 - ERROR - Failed analysis for SOXS: Server error '502 Bad Gateway' for url 'https://tta.kewar.org/analyze'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/502
+2025-07-12 08:13:43,827 - ERROR - Failed analysis for SQQQ: Server error '502 Bad Gateway' for url 'https://tta.kewar.org/analyze'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/502
+2025-07-12 08:13:43,835 - INFO - HTTP Request: POST https://tta.kewar.org/analyze "HTTP/1.1 502 Bad Gateway"
+2025-07-12 08:13:43,838 - ERROR - Failed analysis for SOXL: Server error '502 Bad Gateway' for url 'https://tta.kewar.org/analyze'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/502
+2025-07-12 08:13:43,851 - INFO - HTTP Request: POST https://tta.kewar.org/analyze "HTTP/1.1 502 Bad Gateway"
+2025-07-12 08:13:43,854 - ERROR - Failed analysis for BBAI: Server error '502 Bad Gateway' for url 'https://tta.kewar.org/analyze'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/502
+2025-07-12 08:13:43,861 - INFO - HTTP Request: POST https://tta.kewar.org/analyze "HTTP/1.1 502 Bad Gateway"
+2025-07-12 08:13:43,861 - ERROR - Failed analysis for MULN: Server error '502 Bad Gateway' for url 'https://tta.kewar.org/analyze'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/502
+2025-07-12 08:13:43,871 - INFO - HTTP Request: POST https://tta.kewar.org/analyze "HTTP/1.1 502 Bad Gateway"
+2025-07-12 08:13:43,871 - ERROR - Failed analysis for TSLA: Server error '502 Bad Gateway' for url 'https://tta.kewar.org/analyze'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/502
+2025-07-12 08:13:43,875 - INFO - HTTP Request: POST https://tta.kewar.org/analyze "HTTP/1.1 502 Bad Gateway"
+2025-07-12 08:13:43,875 - ERROR - Failed analysis for FTFT: Server error '502 Bad Gateway' for url 'https://tta.kewar.org/analyze'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/502
+2025-07-12 08:13:43,883 - INFO - HTTP Request: POST https://tta.kewar.org/analyze "HTTP/1.1 502 Bad Gateway"
+2025-07-12 08:13:43,883 - INFO - HTTP Request: POST https://tta.kewar.org/analyze "HTTP/1.1 502 Bad Gateway"
+2025-07-12 08:13:43,884 - ERROR - Failed analysis for LCID: Server error '502 Bad Gateway' for url 'https://tta.kewar.org/analyze'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/502
+2025-07-12 08:13:43,884 - ERROR - Failed analysis for SOFI: Server error '502 Bad Gateway' for url 'https://tta.kewar.org/analyze'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/502
+2025-07-12 08:13:43,957 - INFO - HTTP Request: GET https://tda.kewar.org/news/SOXS?days=7 "HTTP/1.1 404 Not Found"
+2025-07-12 08:13:43,961 - ERROR - Failed to get news for SOXS: Client error '404 Not Found' for url 'https://tda.kewar.org/news/SOXS?days=7'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+2025-07-12 08:13:44,076 - INFO - HTTP Request: GET https://tda.kewar.org/news/OPEN?days=7 "HTTP/1.1 404 Not Found"
+2025-07-12 08:13:44,076 - ERROR - Failed to get news for OPEN: Client error '404 Not Found' for url 'https://tda.kewar.org/news/OPEN?days=7'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+2025-07-12 08:13:44,326 - INFO - HTTP Request: GET https://tda.kewar.org/news/NVDA?days=7 "HTTP/1.1 200 OK"
+2025-07-12 08:13:44,343 - INFO - HTTP Request: GET https://tda.kewar.org/news/SOXL?days=7 "HTTP/1.1 404 Not Found"
+2025-07-12 08:13:44,345 - ERROR - Failed to get news for SOXL: Client error '404 Not Found' for url 'https://tda.kewar.org/news/SOXL?days=7'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+2025-07-12 08:13:44,346 - INFO - HTTP Request: GET https://tda.kewar.org/news/TSLL?days=7 "HTTP/1.1 404 Not Found"
+2025-07-12 08:13:44,350 - ERROR - Failed to get news for TSLL: Client error '404 Not Found' for url 'https://tda.kewar.org/news/TSLL?days=7'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+2025-07-12 08:13:44,351 - INFO - HTTP Request: GET https://tda.kewar.org/news/FTFT?days=7 "HTTP/1.1 404 Not Found"
+2025-07-12 08:13:44,352 - ERROR - Failed to get news for FTFT: Client error '404 Not Found' for url 'https://tda.kewar.org/news/FTFT?days=7'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+2025-07-12 08:13:44,356 - INFO - HTTP Request: GET https://tda.kewar.org/news/AAL?days=7 "HTTP/1.1 200 OK"
+2025-07-12 08:13:44,358 - INFO - HTTP Request: GET https://tda.kewar.org/news/NIO?days=7 "HTTP/1.1 200 OK"
+2025-07-12 08:13:44,377 - INFO - HTTP Request: GET https://tda.kewar.org/news/BBAI?days=7 "HTTP/1.1 200 OK"
+2025-07-12 08:13:44,387 - INFO - HTTP Request: GET https://tda.kewar.org/news/TSLA?days=7 "HTTP/1.1 200 OK"
+2025-07-12 08:13:44,388 - INFO - HTTP Request: GET https://tda.kewar.org/news/LCID?days=7 "HTTP/1.1 200 OK"
+2025-07-12 08:13:44,389 - INFO - HTTP Request: GET https://tda.kewar.org/news/MULN?days=7 "HTTP/1.1 404 Not Found"
+2025-07-12 08:13:44,392 - ERROR - Failed to get news for MULN: Client error '404 Not Found' for url 'https://tda.kewar.org/news/MULN?days=7'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+2025-07-12 08:13:44,393 - INFO - HTTP Request: GET https://tda.kewar.org/news/SOFI?days=7 "HTTP/1.1 200 OK"
+2025-07-12 08:13:44,394 - INFO - HTTP Request: GET https://tda.kewar.org/news/IBIT?days=7 "HTTP/1.1 200 OK"
+2025-07-12 08:13:44,397 - INFO - HTTP Request: GET https://tda.kewar.org/news/SQQQ?days=7 "HTTP/1.1 404 Not Found"
+2025-07-12 08:13:44,399 - ERROR - Failed to get news for SQQQ: Client error '404 Not Found' for url 'https://tda.kewar.org/news/SQQQ?days=7'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+2025-07-12 08:13:44,403 - INFO - STEP 1 Complete: Raw data successfully retrieved.
+2025-07-12 08:13:44,403 - INFO - STEP 2: Starting iterative synthesis of the report...
+2025-07-12 08:13:44,403 - INFO - Synthesizing report for: SOXS
+2025-07-12 08:13:52,018 - INFO - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2025-07-12 08:13:56,864 - INFO - Synthesizing report for: NVDA
+2025-07-12 08:14:38,429 - INFO - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2025-07-12 08:14:57,177 - INFO - Synthesizing report for: OPEN
+2025-07-12 08:14:58,948 - INFO - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2025-07-12 08:15:03,909 - INFO - Synthesizing report for: NIO
+2025-07-12 08:15:12,213 - INFO - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2025-07-12 08:15:19,822 - INFO - Synthesizing report for: MULN
+2025-07-12 08:15:21,136 - INFO - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2025-07-12 08:15:26,829 - INFO - Synthesizing report for: BBAI
+2025-07-12 08:15:33,591 - INFO - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2025-07-12 08:15:39,112 - INFO - Synthesizing report for: TSLL
+2025-07-12 08:15:40,180 - INFO - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2025-07-12 08:15:45,503 - INFO - Synthesizing report for: FTFT
+2025-07-12 08:15:46,470 - INFO - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2025-07-12 08:15:50,186 - INFO - Synthesizing report for: SOFI
+2025-07-12 08:16:00,377 - INFO - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2025-07-12 08:16:09,195 - INFO - Synthesizing report for: LCID
+2025-07-12 08:16:14,100 - INFO - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2025-07-12 08:16:20,378 - INFO - Synthesizing report for: AAL
+2025-07-12 08:16:27,493 - INFO - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2025-07-12 08:16:45,388 - INFO - Synthesizing report for: TSLA
+2025-07-12 08:17:28,200 - INFO - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2025-07-12 08:17:42,375 - INFO - Synthesizing report for: IBIT
+2025-07-12 08:17:46,686 - INFO - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2025-07-12 08:17:57,268 - INFO - Synthesizing report for: SQQQ
+2025-07-12 08:17:58,688 - INFO - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2025-07-12 08:18:04,280 - INFO - Synthesizing report for: SOXL
+2025-07-12 08:18:05,311 - INFO - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2025-07-12 08:18:11,117 - INFO - ✅ Workflow Finished!
