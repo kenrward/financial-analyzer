@@ -16,6 +16,7 @@ pandas
 pyarrow
 ta
 polygon-api-client
+requests
 
 # Utilities & API Calls
 httpx
