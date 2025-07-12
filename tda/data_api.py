@@ -1,8 +1,11 @@
+# data_api.py
+
 import os
 from datetime import date, timedelta
 from flask import Flask, jsonify, request
 from polygon import RESTClient
 from dotenv import load_dotenv
+import requests # Import the requests library
 
 load_dotenv()
 
@@ -15,15 +18,15 @@ if not POLYGON_API_KEY:
 # This client is still used for the V1 endpoints
 client = RESTClient(api_key=POLYGON_API_KEY)
 
+
 # --- V1 Endpoints (Unchanged) ---
 @app.route('/health', methods=['GET'])
 def health_check():
     return jsonify({"status": "healthy", "service": "data-api"}), 200
-    
-# ... (other V1 endpoints like /most-active-stocks, /historical-data, /news are also unchanged) ...
+
+# ... (other V1 endpoints like /most-active-stocks, /historical-data, /news are unchanged) ...
 @app.route('/most-active-stocks', methods=['GET'])
 def get_most_active_stocks():
-    """Fetches the top N most active stocks for the previous trading day."""
     top_n = request.args.get('limit', default=100, type=int)
     target_day = date.today() - timedelta(days=1)
     for _ in range(15):
@@ -40,11 +43,10 @@ def get_most_active_stocks():
         except Exception:
             pass 
         target_day -= timedelta(days=1)
-    return jsonify({"message": "Could not find recent trading data.", "stocks": []}), 404
+    return jsonify({"message": "Could not find recent trading data."}), 404
 
 @app.route('/historical-data/<ticker>', methods=['GET'])
 def get_historical_data(ticker):
-    """Fetches historical daily OHLCV data for a given ticker."""
     days = request.args.get('days', default=90, type=int)
     to_date = date.today()
     from_date = to_date - timedelta(days=days)
@@ -64,7 +66,6 @@ def get_historical_data(ticker):
 
 @app.route('/news/<ticker>', methods=['GET'])
 def get_news_for_ticker(ticker):
-    """Fetches recent news articles for a given ticker."""
     try:
         news_articles = list(client.list_ticker_news(ticker=ticker.upper(), limit=20))
         if not news_articles: return jsonify({"message": f"No recent news for {ticker}"}), 404
@@ -77,21 +78,18 @@ def get_news_for_ticker(ticker):
         return jsonify({"error": str(e)}), 500
 
 
-# --- ✅ V2 Endpoints (Rewritten to use the correct TMX API) ---
+# --- ✅ V2 Endpoints (Rewritten with the 'requests' library) ---
 
 def _get_corporate_events(ticker, event_type):
-    """Helper function to call the TMX corporate events endpoint."""
-    # The polygon client's session can make raw requests
-    # NOTE: Your plan may need the "TMX Corporate Events" expansion from Polygon.
+    """Helper function to call the TMX corporate events endpoint using requests."""
     base_url = "https://api.polygon.io/tmx/v1/corporate-events"
     params = {
         "ticker": ticker.upper(),
         "type": event_type,
         "apiKey": POLYGON_API_KEY
     }
-    # We use the client's underlying session to make the GET request
-    response = client._session.get(base_url, params=params)
-    response.raise_for_status() # Raise an exception for bad status codes
+    response = requests.get(base_url, params=params)
+    response.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
     return response.json().get('results', [])
 
 @app.route('/earnings-calendar/<ticker>', methods=['GET'])
@@ -102,7 +100,6 @@ def get_earnings_calendar(ticker):
         if not earnings:
             return jsonify({"message": f"No earnings data for {ticker}"}), 404
         
-        # We only need the date for our purposes
         formatted_earnings = [{"report_date": e.get('date')} for e in earnings]
         return jsonify({"ticker": ticker.upper(), "earnings": formatted_earnings}), 200
     except Exception as e:
@@ -117,7 +114,6 @@ def get_dividends(ticker):
         if not dividends:
             return jsonify({"message": f"No dividend data for {ticker}"}), 404
 
-        # The date from this endpoint for dividends is the ex-dividend date
         formatted_dividends = [{"ex_dividend_date": d.get('date')} for d in dividends]
         return jsonify({"ticker": ticker.upper(), "dividends": formatted_dividends}), 200
     except Exception as e:
