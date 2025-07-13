@@ -19,53 +19,61 @@ logging.basicConfig(
     ]
 )
 
-def download_and_store_equities(client: RESTClient, target_date: date):
+def download_and_store_equities(client: RESTClient, tickers: list, start_date: str, end_date: str):
     """
-    Downloads the daily stock aggregates for a specific date using the REST API,
-    converts it to Parquet, and appends it to the local data store.
+    Downloads historical daily data for a list of tickers over a date range
+    and appends it to a local Parquet file.
     """
-    target_date_str = target_date.strftime('%Y-%m-%d')
-    logging.info(f"Starting equities download for date: {target_date_str}")
-    
-    try:
-        # --- ✅ THE FIX ---
-        # Using the get_grouped_daily_aggs method which is confirmed to work.
-        daily_aggs = client.get_grouped_daily_aggs(target_date_str, adjusted=True)
-        
-        # This endpoint returns a list of Aggregate objects
-        df = pd.DataFrame([a.__dict__ for a in daily_aggs])
-        
-        if df.empty:
-            logging.warning(f"No equity data found for {target_date_str} (likely a market holiday).")
-            return
+    all_aggs = []
+    logging.info(f"Starting download for {len(tickers)} tickers from {start_date} to {end_date}...")
 
-        logging.info(f"Successfully downloaded {len(df)} equity records for {target_date_str}.")
-        
-        # --- Data Cleaning & Formatting ---
-        # Note: The attribute names are already lowercase and match our desired format
-        # We just need to rename 'T' from the REST API object model if it exists
-        df.rename(columns={'T': 'ticker', 'v': 'volume', 'o': 'open', 'h': 'high', 'l': 'low', 'c': 'close', 't':'timestamp'}, inplace=True)
-        # Convert Unix timestamp (in milliseconds) to a proper date
-        df['date'] = pd.to_datetime(df['timestamp'], unit='ms').dt.date
-
-        # Select and reorder columns to match our desired schema
-        final_df = df[['date', 'ticker', 'open', 'high', 'low', 'close', 'volume']]
-        
-        # --- Store the data ---
-        if os.path.exists(STORAGE_PATH):
-            logging.info(f"Appending data to existing file: {STORAGE_PATH}")
-            existing_df = pd.read_parquet(STORAGE_PATH)
-            combined_df = pd.concat([existing_df, final_df]).drop_duplicates(subset=['date', 'ticker'], keep='last')
-            combined_df.to_parquet(STORAGE_PATH, engine='pyarrow', compression='snappy', index=False)
-        else:
-            logging.info(f"Creating new data file: {STORAGE_PATH}")
-            os.makedirs(os.path.dirname(STORAGE_PATH), exist_ok=True)
-            final_df.to_parquet(STORAGE_PATH, engine='pyarrow', compression='snappy', index=False)
+    for ticker in tickers:
+        try:
+            logging.info(f"Fetching data for {ticker}...")
+            # Using the list_aggs method for robust date range queries
+            aggs = client.list_aggs(
+                ticker,
+                1,
+                "day",
+                start_date,
+                end_date,
+                limit=50000 # Max limit
+            )
             
-        logging.info(f"Successfully saved equity data for {target_date_str}.")
+            # Convert generator to a list of dictionaries and add the ticker
+            for a in aggs:
+                all_aggs.append({
+                    'ticker': ticker,
+                    'date': date.fromtimestamp(a.timestamp / 1000),
+                    'open': a.open,
+                    'high': a.high,
+                    'low': a.low,
+                    'close': a.close,
+                    'volume': a.volume
+                })
+        except Exception as e:
+            logging.error(f"Could not fetch data for {ticker}. Error: {e}")
 
-    except Exception as e:
-        logging.error(f"Failed to process equity data for {target_date_str}. Error: {e}", exc_info=True)
+    if not all_aggs:
+        logging.warning("No data was downloaded. Exiting.")
+        return
+
+    df = pd.DataFrame(all_aggs)
+    logging.info(f"Successfully downloaded {len(df)} total records.")
+
+    # --- Store the data ---
+    if os.path.exists(STORAGE_PATH):
+        logging.info(f"Appending data to existing file: {STORAGE_PATH}")
+        existing_df = pd.read_parquet(STORAGE_PATH)
+        # Combine new and old data, then remove any duplicates
+        combined_df = pd.concat([existing_df, df]).drop_duplicates(subset=['date', 'ticker'], keep='last')
+        combined_df.to_parquet(STORAGE_PATH, engine='pyarrow', compression='snappy', index=False)
+    else:
+        logging.info(f"Creating new data file: {STORAGE_PATH}")
+        os.makedirs(os.path.dirname(STORAGE_PATH), exist_ok=True)
+        df.to_parquet(STORAGE_PATH, engine='pyarrow', compression='snappy', index=False)
+        
+    logging.info(f"Successfully saved data to {STORAGE_PATH}.")
 
 
 if __name__ == "__main__":
@@ -73,6 +81,22 @@ if __name__ == "__main__":
         raise ValueError("POLYGON_API_KEY environment variable not set.")
     
     polygon_client = RESTClient(API_KEY)
-    previous_day = date.today() - timedelta(days=1)
+
+    # --- Define tickers and date range for download ---
+    # List of important tickers to bootstrap your database
+    TICKERS_TO_DOWNLOAD = ['SPY', 'QQQ', '^VIX'] 
     
-    download_and_store_equities(polygon_client, previous_day)
+    # For the initial bulk download, use a wide date range
+    end_date = date.today()
+    start_date = end_date - timedelta(days=365 * 3) # 3 years of data
+
+    # For daily updates (in a cron job), you would use:
+    # end_date = date.today()
+    # start_date = end_date - timedelta(days=3) # Get last few days to be safe
+
+    download_and_store_equities(
+        polygon_client,
+        TICKERS_TO_DOWNLOAD,
+        start_date.strftime('%Y-%m-%d'),
+        end_date.strftime('%Y-%m-%d')
+    )
