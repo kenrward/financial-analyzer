@@ -1,5 +1,6 @@
 # downloader.py
 import os
+from xmlrpc import client
 import pandas as pd
 from datetime import date, timedelta
 from polygon import RESTClient
@@ -33,7 +34,7 @@ def download_and_store_equities(client: RESTClient, target_date: date):
     
     try:
         # Download the daily OHLCV flat file (this returns a generator of dicts)
-        daily_aggs_stream = client.download_daily_open_close_aggs(target_date_str)
+        daily_aggs_stream = client.list_daily_open_close_aggs(target_date_str)
         
         df = pd.DataFrame(daily_aggs_stream)
         
