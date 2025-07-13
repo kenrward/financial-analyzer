@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from flask import Flask, jsonify, request
 from polygon import RESTClient
 from dotenv import load_dotenv
-import requests # Import the requests library
+import yfinance as yf # ✅ V2: Import the yfinance library
 
 load_dotenv()
 
@@ -15,7 +15,7 @@ POLYGON_API_KEY = os.getenv("POLYGON_API_KEY")
 if not POLYGON_API_KEY:
     raise ValueError("POLYGON_API_KEY environment variable not set.")
 
-# This client is still used for the V1 endpoints
+# This client is still used for Polygon-specific data
 client = RESTClient(api_key=POLYGON_API_KEY)
 
 
@@ -78,46 +78,50 @@ def get_news_for_ticker(ticker):
         return jsonify({"error": str(e)}), 500
 
 
-# --- ✅ V2 Endpoints (Rewritten with the 'requests' library) ---
-
-def _get_corporate_events(ticker, event_type):
-    """Helper function to call the TMX corporate events endpoint using requests."""
-    base_url = "https://api.polygon.io/tmx/v1/corporate-events"
-    params = {
-        "ticker": ticker.upper(),
-        "type": event_type,
-        "apiKey": POLYGON_API_KEY
-    }
-    response = requests.get(base_url, params=params)
-    response.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
-    return response.json().get('results', [])
+# --- ✅ V2 Endpoints (Rewritten to use yfinance) ---
 
 @app.route('/earnings-calendar/<ticker>', methods=['GET'])
 def get_earnings_calendar(ticker):
-    """Fetches earnings announcement dates for a given ticker."""
+    """Fetches upcoming earnings dates for a given ticker from Yahoo Finance."""
     try:
-        earnings = _get_corporate_events(ticker, "earnings_announcement_date")
-        if not earnings:
+        stock = yf.Ticker(ticker)
+        earnings_dates = stock.earnings_dates
+        
+        if earnings_dates is None or earnings_dates.empty:
             return jsonify({"message": f"No earnings data for {ticker}"}), 404
         
-        formatted_earnings = [{"report_date": e.get('date')} for e in earnings]
-        return jsonify({"ticker": ticker.upper(), "earnings": formatted_earnings}), 200
+        # Format the data to match our desired structure
+        # The index of the DataFrame is the report date
+        formatted_earnings = [
+            {"report_date": index.strftime('%Y-%m-%d')}
+            for index, row in earnings_dates.iterrows()
+        ]
+        # Get the most recent 4-8 dates for relevance
+        return jsonify({"ticker": ticker.upper(), "earnings": formatted_earnings[-8:]}), 200
     except Exception as e:
-        app.logger.error(f"Error in get_earnings_calendar for {ticker}: {e}", exc_info=True)
+        app.logger.error(f"Error in yfinance get_earnings_calendar for {ticker}: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 @app.route('/dividends/<ticker>', methods=['GET'])
 def get_dividends(ticker):
-    """Fetches ex-dividend dates for a given ticker."""
+    """Fetches ex-dividend dates for a given ticker from Yahoo Finance."""
     try:
-        dividends = _get_corporate_events(ticker, "dividend")
-        if not dividends:
+        stock = yf.Ticker(ticker)
+        dividends = stock.dividends
+        
+        if dividends is None or dividends.empty:
             return jsonify({"message": f"No dividend data for {ticker}"}), 404
 
-        formatted_dividends = [{"ex_dividend_date": d.get('date')} for d in dividends]
-        return jsonify({"ticker": ticker.upper(), "dividends": formatted_dividends}), 200
+        # The index is the ex-dividend date, the value is the amount
+        # We only need the date for our analysis
+        formatted_dividends = [
+            {"ex_dividend_date": index.strftime('%Y-%m-%d')}
+            for index, value in dividends.items()
+        ]
+        # Get the most recent 4-8 dates for relevance
+        return jsonify({"ticker": ticker.upper(), "dividends": formatted_dividends[-8:]}), 200
     except Exception as e:
-        app.logger.error(f"Error in get_dividends for {ticker}: {e}", exc_info=True)
+        app.logger.error(f"Error in yfinance get_dividends for {ticker}: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
