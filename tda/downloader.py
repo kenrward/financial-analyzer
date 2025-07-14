@@ -84,7 +84,10 @@ if __name__ == "__main__":
 
     # --- Define tickers and date range for download ---
     # List of important tickers to bootstrap your database
-    TICKERS_TO_DOWNLOAD = ['SPY', 'QQQ', '^VIX'] 
+    TICKERS_TO_DOWNLOAD = [
+    'SPY', 'QQQ', 'I:VIX', # Key Indices (Note 'I:' prefix for VIX)
+    'NVDA', 'AAPL', 'MSFT', 'TSLA', 'AMZN', 'GOOGL', 'JPM' # Add key optionable stocks
+]
     
     # For the initial bulk download, use a wide date range
     end_date = date.today()
