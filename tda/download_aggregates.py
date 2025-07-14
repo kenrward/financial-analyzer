@@ -69,7 +69,7 @@ def download_polygon_data():
             if os.path.exists(local_filepath):
                 print(f"Skipping {obj['Key']}, already downloaded.")
                 continue
-            #s3.download_file(bucket_name, obj['Key'], local_filepath)
+            s3.download_file(bucket_name, obj['Key'], local_filepath)
 
 if __name__ == "__main__":
     download_polygon_data()
