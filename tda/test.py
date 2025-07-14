@@ -7,7 +7,7 @@ session = boto3.Session(
   aws_access_key_id= os.getenv("POLYGON_ACCESS_KEY"),
   aws_secret_access_key=os.getenv("POLYGON_SECRET_KEY"),
 )
-
+print(os.getenv("POLYGON_ACCESS_KEY"))
 # Create a client with your session and specify the endpoint
 s3 = session.client(
   's3',
