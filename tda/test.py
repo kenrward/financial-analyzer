@@ -38,7 +38,7 @@ for page in paginator.paginate(Bucket='flatfiles', Prefix=prefix):
 bucket_name = 'flatfiles'
 
 # Specify the S3 object key name
-object_key = 'us_stocks_sip/trades_v1/2024/03/2024-03-07.csv.gz'
+object_key = 'us_stocks_sip/trades_v1/2025/03/2024-03-07.csv.gz'
 
 # Specify the local file name and path to save the downloaded file
 # This splits the object_key string by '/' and takes the last segment as the file name
