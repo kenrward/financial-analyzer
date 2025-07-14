@@ -44,6 +44,7 @@ ENDPOINT_URL = "https://files.polygon.io"
 DESTINATION_DIR = "/mnt/shared-drive/polygon_data" # Local folder to save files
 DATA_TYPE = "us_stocks_sip" # Data type to download
 AGG_TYPE = "minute_aggs_v1" # We want 1-minute aggregates
+bucket_name = 'flatfiles'
 
 # --- Main Script ---
 
@@ -60,38 +61,10 @@ def download_polygon_data():
     os.makedirs(DESTINATION_DIR, exist_ok=True)
 
 
-    # Calculate date range (last 180 days)
-    end_date = datetime.now() - timedelta(days=1)
-    start_date = end_date - timedelta(days=2)
-
-    # Loop through each day in the date range
-    current_date = start_date
-    while current_date <= end_date:
-        # Format the date parts for the S3 key
-        year = current_date.strftime('%Y')
-        month = current_date.strftime('%m')
-        day = current_date.strftime('%d')
-        date_str = current_date.strftime('%Y%m%d')
-
-        # Construct the S3 object key (the file path in the bucket)
-        # e.g., /us_stocks_sip/minute_aggs/2024/01/20240125.csv.gz
-        s3_key = f"{DATA_TYPE}/{AGG_TYPE}/{year}/{month}/{date_str}.csv.gz"
-        local_filepath = os.path.join(DESTINATION_DIR, f"{date_str}.csv.gz")
-
-        # Skip if the file already exists locally
-        if os.path.exists(local_filepath):
-            print(f"Skipping {s3_key}, already downloaded.")
-            current_date += timedelta(days=1)
-            continue
-            
-        print(f"Attempting to download: {s3_key}")
-
-        object_key = 'us_stocks_sip/minute_aggs_v1/2025/07/2025-07-10.csv.gz'
-        s3.download_file(BUCKET_NAME, object_key, local_filepath)
-        print(f"-> Successfully downloaded to {local_filepath}")
-        
-        # Move to the next day
-        current_date += timedelta(days=1)
+    for page in paginator.paginate(Bucket='flatfiles', Prefix=prefix):
+        for obj in page['Contents']:
+            print(obj['Key'])
+            s3.download_file(bucket_name, obj['Key'], DESTINATION_DIR)
 
 if __name__ == "__main__":
     download_polygon_data()
