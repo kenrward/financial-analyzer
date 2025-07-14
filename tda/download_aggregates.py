@@ -64,7 +64,12 @@ def download_polygon_data():
     for page in paginator.paginate(Bucket='flatfiles', Prefix=prefix):
         for obj in page['Contents']:
             print(obj['Key'])
-            #s3.download_file(bucket_name, obj['Key'], DESTINATION_DIR)
+            local_filepath = os.path.join(DESTINATION_DIR, f"{obj['Key']}")
+            # Skip if the file already exists locally
+            if os.path.exists(local_filepath):
+                print(f"Skipping {obj['Key']}, already downloaded.")
+                continue
+            #s3.download_file(bucket_name, obj['Key'], local_filepath)
 
 if __name__ == "__main__":
     download_polygon_data()
