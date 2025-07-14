@@ -77,7 +77,29 @@ def get_news_for_ticker(ticker):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
+@app.route('/last-trade/<ticker>', methods=['GET'])
+def get_last_trade(ticker):
+    """Fetches the last trade price for a given ticker from a Polygon snapshot."""
+    try:
+        # Using the v2 snapshot endpoint for a single ticker
+        snapshot = client.get_snapshot_ticker(ticker.upper())
+        if snapshot and snapshot.last_trade:
+            return jsonify({
+                "ticker": ticker.upper(),
+                "price": snapshot.last_trade.price,
+                "timestamp": snapshot.last_trade.timestamp
+            }), 200
+        else:
+            # Fallback to previous day's close if no last trade is in the snapshot
+            prev_day = client.get_previous_daily_open_close(ticker.upper(), adjusted=True)
+            if prev_day:
+                return jsonify({"ticker": ticker.upper(), "price": prev_day.close}), 200
+            
+        return jsonify({"message": f"Could not find price data for {ticker}"}), 404
+            
+    except Exception as e:
+        app.logger.error(f"Error in get_last_trade for {ticker}: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
 # --- ✅ V2 Endpoints (Rewritten to use yfinance) ---
 
 @app.route('/earnings-calendar/<ticker>', methods=['GET'])

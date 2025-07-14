@@ -52,7 +52,17 @@ async def _get_most_active_stocks(limit: int = 100):
     except Exception as e:
         log.error(f"Failed to get active stocks: {e}")
         return {"error": "Failed to get active stocks"}
-
+async def _get_live_price(ticker: str):
+    """Async helper to get the live price."""
+    url = f"{DATA_API_BASE_URL}/last-trade/{ticker}"
+    try:
+        response = await async_client.get(url)
+        response.raise_for_status()
+        return response.json().get("price", "N/A")
+    except Exception as e:
+        log.error(f"Failed to get live price for {ticker}: {e}")
+        return "N/A"
+    
 async def _get_news_for_ticker(ticker: str, days: int = 7):
     url = f"{DATA_API_BASE_URL}/news/{ticker}"
     params = {"days": days}
@@ -91,7 +101,7 @@ async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
         return json.dumps({"error": "Could not retrieve active stocks."})
 
     active_stocks = active_stocks_data["top_stocks"]
-    price_lookup = {stock['ticker']: stock.get('close_price') for stock in active_stocks}
+    # We no longer need the price_lookup here, as we'll fetch live prices later
     log.info(f"Found {len(active_stocks)} active stocks. Filtering for optionable tickers...")
 
     optionable_tasks = {stock['ticker']: _is_ticker_optionable(stock['ticker']) for stock in active_stocks}
@@ -103,20 +113,26 @@ async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
     if not optionable_tickers:
         return json.dumps([], indent=2)
 
+    # Concurrently fetch TA, news, AND the live price for the filtered list
     analysis_tasks = {ticker: _get_and_analyze_ticker(ticker) for ticker in optionable_tickers}
     news_tasks = {ticker: _get_news_for_ticker(ticker) for ticker in optionable_tickers}
+    price_tasks = {ticker: _get_live_price(ticker) for ticker in optionable_tickers}
     
-    analysis_results = await asyncio.gather(*analysis_tasks.values())
-    news_results = await asyncio.gather(*news_tasks.values())
+    analysis_results, news_results, price_results = await asyncio.gather(
+        asyncio.gather(*analysis_tasks.values()),
+        asyncio.gather(*news_tasks.values()),
+        asyncio.gather(*price_tasks.values())
+    )
     
     analysis_map = {ticker: res for ticker, res in zip(analysis_tasks.keys(), analysis_results)}
     news_map = {ticker: res for ticker, res in zip(news_tasks.keys(), news_results)}
+    price_map = {ticker: res for ticker, res in zip(price_tasks.keys(), price_results)}
 
     final_results = []
     for ticker in optionable_tickers:
         final_results.append({
             "ticker": ticker,
-            "price": price_lookup.get(ticker, "N/A"),
+            "price": price_map.get(ticker, "N/A"), # Use the live price
             "technical_analysis": analysis_map.get(ticker),
             "news": news_map.get(ticker)
         })
