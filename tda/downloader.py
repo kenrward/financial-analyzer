@@ -80,5 +80,5 @@ if __name__ == "__main__":
     #     current_date += timedelta(days=1)
 
     # For a daily cron job, you would just process the previous day
-    previous_day = date.today() - timedelta(days=1)
+    previous_day = date.today() - timedelta(days=15)
     process_daily_flat_file(previous_day)
