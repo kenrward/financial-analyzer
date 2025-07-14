@@ -65,15 +65,16 @@ async def run_trading_analysis_workflow(limit: int):
     # Loop through each stock's data for synthesis
     for stock_data in results_list:
         single_stock_prompt = f"""
-        You are a financial analyst. Your task is to analyze the data for a single stock and provide a one-line summary for a markdown table.
-        The data is: {json.dumps(stock_data)}
+        You are a financial analyst. Your task is to complete a single markdown table row for the stock {ticker}.
+        The stock's price is ${price}.
+        Use the following JSON data blob for your analysis: {json.dumps(stock_data)}
 
-        Determine if the outlook is Bullish, Bearish, or Neutral based on the technicals and news.
+        Determine if the outlook is Bullish, Bearish, or Neutral and write a brief justification.
         
-        Your entire response must be a single markdown table row using the format:
-        | TICKER | $PRICE | Outlook | Justification |
+        Your entire response MUST be the single, completed markdown table row. Use this exact format:
+        | {ticker} | ${price} | Outlook | Justification |
         """
-        
+        logging.info(f"Prompt: {single_stock_prompt}")
         logging.info(f"Synthesizing report for: {stock_data.get('ticker')} at price {stock_data.get('price')}")
         response = await llm.ainvoke(single_stock_prompt)
         table_row = response.content.strip().replace("'", "")
