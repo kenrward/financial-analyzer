@@ -30,7 +30,7 @@ s3 = session.client(
 paginator = s3.get_paginator('list_objects_v2')
 
 # Choose the appropriate prefix depending on the data you need:
-prefix = 'us_stocks_sip'  # Example: Change this prefix to match your data need
+prefix = 'us_options_opra'  # Example: Change this prefix to match your data need
 
 # S3 Bucket Details
 BUCKET_NAME = "flatfiles"
