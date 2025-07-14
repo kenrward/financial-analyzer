@@ -38,7 +38,7 @@ ENDPOINT_URL = "https://files.polygon.io"
 
 # Download settings
 DESTINATION_DIR = "/mnt/shared-drive/polygon_data" # Local folder to save files
-DATA_TYPE = "us_stocks_sip" # Data type to download
+DATA_TYPE = "us_options_opra" # "us_stocks_sip" # Data type to download
 AGG_TYPE = "minute_aggs_v1" # We want 1-minute aggregates
 bucket_name = 'flatfiles'
 
