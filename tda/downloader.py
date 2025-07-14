@@ -2,12 +2,14 @@
 import os
 import pandas as pd
 from datetime import date, timedelta
-from polygon import RESTClient
 import logging
 
 # --- Configuration ---
-API_KEY = os.getenv("POLYGON_API_KEY")
-STORAGE_PATH = "/mnt/shared-drive/us_stocks_daily.parquet"
+# The root path where your daily flat files are stored
+FLAT_FILE_ROOT_PATH = "/mnt/shared-drive/polygon_data/us_stocks_sip/day_aggs_v1"
+
+# The path to your master Parquet file database
+MASTER_PARQUET_PATH = "/mnt/shared-drive/trading_agent_data/us_stocks_daily.parquet"
 
 # --- Setup Logging ---
 logging.basicConfig(
@@ -19,87 +21,64 @@ logging.basicConfig(
     ]
 )
 
-def download_and_store_equities(client: RESTClient, tickers: list, start_date: str, end_date: str):
+def process_daily_flat_file(target_date: date):
     """
-    Downloads historical daily data for a list of tickers over a date range
-    and appends it to a local Parquet file.
+    Reads a daily Polygon.io flat file from a local path, processes it,
+    and appends the data to the master Parquet data store.
     """
-    all_aggs = []
-    logging.info(f"Starting download for {len(tickers)} tickers from {start_date} to {end_date}...")
+    year = target_date.strftime('%Y')
+    month = target_date.strftime('%m')
+    date_str = target_date.strftime('%Y-%m-%d')
+    
+    # Construct the full path to the daily gzipped CSV file
+    file_path = os.path.join(FLAT_FILE_ROOT_PATH, year, month, f"{date_str}.csv.gz")
+    
+    logging.info(f"Processing file: {file_path}")
 
-    for ticker in tickers:
-        try:
-            logging.info(f"Fetching data for {ticker}...")
-            # Using the list_aggs method for robust date range queries
-            aggs = client.list_aggs(
-                ticker,
-                1,
-                "day",
-                start_date,
-                end_date,
-                limit=50000 # Max limit
-            )
-            
-            # Convert generator to a list of dictionaries and add the ticker
-            for a in aggs:
-                all_aggs.append({
-                    'ticker': ticker,
-                    'date': date.fromtimestamp(a.timestamp / 1000),
-                    'open': a.open,
-                    'high': a.high,
-                    'low': a.low,
-                    'close': a.close,
-                    'volume': a.volume
-                })
-        except Exception as e:
-            logging.error(f"Could not fetch data for {ticker}. Error: {e}")
-
-    if not all_aggs:
-        logging.warning("No data was downloaded. Exiting.")
-        return
-
-    df = pd.DataFrame(all_aggs)
-    logging.info(f"Successfully downloaded {len(df)} total records.")
-
-    # --- Store the data ---
-    if os.path.exists(STORAGE_PATH):
-        logging.info(f"Appending data to existing file: {STORAGE_PATH}")
-        existing_df = pd.read_parquet(STORAGE_PATH)
-        # Combine new and old data, then remove any duplicates
-        combined_df = pd.concat([existing_df, df]).drop_duplicates(subset=['date', 'ticker'], keep='last')
-        combined_df.to_parquet(STORAGE_PATH, engine='pyarrow', compression='snappy', index=False)
-    else:
-        logging.info(f"Creating new data file: {STORAGE_PATH}")
-        os.makedirs(os.path.dirname(STORAGE_PATH), exist_ok=True)
-        df.to_parquet(STORAGE_PATH, engine='pyarrow', compression='snappy', index=False)
+    try:
+        # Read the gzipped CSV file directly into a pandas DataFrame
+        df = pd.read_csv(file_path, compression='gzip')
+        logging.info(f"Successfully read {len(df)} records from {file_path}.")
         
-    logging.info(f"Successfully saved data to {STORAGE_PATH}.")
+        # --- Data Cleaning & Formatting ---
+        # The flat files have different column names
+        df.rename(columns={'ticker': 'T', 'open': 'o', 'high': 'h', 'low': 'l', 'close': 'c', 'volume': 'v', 'timestamp': 't'}, inplace=True)
+        # Convert Unix timestamp (in nanoseconds for flat files) to a proper date
+        df['date'] = pd.to_datetime(df['t'], unit='ns').dt.date
+
+        # Select and reorder columns
+        final_df = df[['date', 'T', 'o', 'h', 'l', 'c', 'v']]
+        final_df = final_df.rename(columns={'T': 'ticker', 'o': 'open', 'h': 'high', 'l': 'low', 'c': 'close', 'v': 'volume'})
+
+        # --- Store the data ---
+        if os.path.exists(MASTER_PARQUET_PATH):
+            logging.info(f"Appending data to existing file: {MASTER_PARQUET_PATH}")
+            existing_df = pd.read_parquet(MASTER_PARQUET_PATH)
+            combined_df = pd.concat([existing_df, final_df]).drop_duplicates(subset=['date', 'ticker'], keep='last')
+            combined_df.to_parquet(MASTER_PARQUET_PATH, engine='pyarrow', compression='snappy', index=False)
+        else:
+            logging.info(f"Creating new data file: {MASTER_PARQUET_PATH}")
+            os.makedirs(os.path.dirname(MASTER_PARQUET_PATH), exist_ok=True)
+            final_df.to_parquet(MASTER_PARQUET_PATH, engine='pyarrow', compression='snappy', index=False)
+            
+        logging.info(f"Successfully processed and saved data for {date_str}.")
+
+    except FileNotFoundError:
+        logging.warning(f"File not found for {date_str} (likely a weekend or holiday). Skipping.")
+    except Exception as e:
+        logging.error(f"Failed to process data for {date_str}. Error: {e}", exc_info=True)
 
 
 if __name__ == "__main__":
-    if not API_KEY:
-        raise ValueError("POLYGON_API_KEY environment variable not set.")
-    
-    polygon_client = RESTClient(API_KEY)
+    # To build your database initially, you can loop through a range of dates
+    # For example, to process all of June 2025:
+    # start = date(2025, 6, 1)
+    # end = date(2025, 6, 30)
+    # current_date = start
+    # while current_date <= end:
+    #     process_daily_flat_file(current_date)
+    #     current_date += timedelta(days=1)
 
-    # --- Define tickers and date range for download ---
-    # List of important tickers to bootstrap your database
-    TICKERS_TO_DOWNLOAD = [
-    'SPY', 'QQQ', 'I:VIX', # Key Indices (Note 'I:' prefix for VIX)
-    'NVDA', 'AAPL', 'MSFT', 'TSLA', 'AMZN', 'GOOGL', 'JPM' # Add key optionable stocks
-]
-    
-    # For the initial bulk download, use a wide date range
-    end_date = date.today()
-    start_date = end_date - timedelta(days=365 * 3) # 3 years of data
-
-    # For daily updates (in a cron job), you would use:
-    # end_date = date.today()
-    # start_date = end_date - timedelta(days=3) # Get last few days to be safe
-
-    download_and_store_equities(
-        polygon_client,
-        TICKERS_TO_DOWNLOAD,
-        start_date.strftime('%Y-%m-%d'),
-        end_date.strftime('%Y-%m-%d')
-    )
+    # For a daily cron job, you would just process the previous day
+    previous_day = date.today() - timedelta(days=1)
+    process_daily_flat_file(previous_day)
