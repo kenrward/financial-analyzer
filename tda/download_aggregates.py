@@ -47,7 +47,7 @@ def download_polygon_data():
     print("Successfully connected to Polygon.io S3 storage.")
     
     # Calculate date range (last 180 days)
-    end_date = datetime.now()
+    end_date = datetime.now() - timedelta(days=1)
     start_date = end_date - timedelta(days=180)
 
     # Loop through each day in the date range
