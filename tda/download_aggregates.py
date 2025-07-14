@@ -1,10 +1,11 @@
 import os
 import boto3
 from botocore.config import Config
+from botocore.exceptions import ClientError  # <-- Import ClientError
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
-# --- Configuration ---
+# --- (Your existing configuration code remains here) ---
 # Load environment variables from .env file
 load_dotenv()
 
@@ -13,15 +14,15 @@ ACCESS_KEY = os.getenv("POLYGON_ACCESS_KEY")
 SECRET_KEY = os.getenv("POLYGON_SECRET_KEY")
 
 session = boto3.Session(
-  aws_access_key_id=ACCESS_KEY ,
-  aws_secret_access_key=SECRET_KEY ,
+    aws_access_key_id=ACCESS_KEY ,
+    aws_secret_access_key=SECRET_KEY ,
 )
 
 # Create a client with your session and specify the endpoint
 s3 = session.client(
-  's3',
-  endpoint_url='https://files.polygon.io',
-  config=Config(signature_version='s3v4'),
+    's3',
+    endpoint_url='https://files.polygon.io',
+    config=Config(signature_version='s3v4'),
 )
 
 # List Example
@@ -29,11 +30,6 @@ s3 = session.client(
 paginator = s3.get_paginator('list_objects_v2')
 
 # Choose the appropriate prefix depending on the data you need:
-# - 'global_crypto' for global cryptocurrency data
-# - 'global_forex' for global forex data
-# - 'us_indices' for US indices data
-# - 'us_options_opra' for US options (OPRA) data
-# - 'us_stocks_sip' for US stocks (SIP) data
 prefix = 'us_stocks_sip'  # Example: Change this prefix to match your data need
 
 # S3 Bucket Details
@@ -50,26 +46,44 @@ bucket_name = 'flatfiles'
 
 def download_polygon_data():
     """
-    Downloads the last 6 months of 1-minute stock aggregates from Polygon.io.
+    Downloads polygon data, skipping files that are already downloaded
+    or result in a 403 Forbidden error.
     """
     if not ACCESS_KEY or not SECRET_KEY:
         print("Error: S3 credentials not found in .env file.")
         print("Please create a .env file with your POLYGON_ACCESS_KEY and POLYGON_SECRET_KEY.")
         return
 
-    # Create the destination directory if it doesn't exist
+    # Create the base destination directory if it doesn't exist
     os.makedirs(DESTINATION_DIR, exist_ok=True)
 
-
-    for page in paginator.paginate(Bucket='flatfiles', Prefix=prefix):
+    for page in paginator.paginate(Bucket=bucket_name, Prefix=prefix):
+        if 'Contents' not in page:
+            continue
         for obj in page['Contents']:
-            print(obj['Key'])
-            local_filepath = os.path.join(DESTINATION_DIR, f"{obj['Key']}")
+            key = obj['Key']
+            local_filepath = os.path.join(DESTINATION_DIR, key)
+
             # Skip if the file already exists locally
             if os.path.exists(local_filepath):
-                print(f"Skipping {obj['Key']}, already downloaded.")
+                # print(f"Skipping {key}, already downloaded.")
                 continue
-            s3.download_file(bucket_name, obj['Key'], local_filepath)
+
+            # Create destination subdirectory if it doesn't exist
+            os.makedirs(os.path.dirname(local_filepath), exist_ok=True)
+
+            try:
+                print(f"Downloading: {key}")
+                s3.download_file(bucket_name, key, local_filepath)
+
+            except ClientError as e:
+                # Check if the error is a 403 Forbidden error
+                if e.response['Error']['Code'] == '403' or e.response['Error']['Code'] == 'Forbidden':
+                    print(f"--> Access denied for {key}. Skipping file.")
+                else:
+                    # Handle other client errors (e.g., 404 Not Found)
+                    print(f"--> An unexpected error occurred for {key}: {e}. Skipping.")
+                continue # Move on to the next file
 
 if __name__ == "__main__":
     download_polygon_data()
