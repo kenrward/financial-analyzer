@@ -86,8 +86,8 @@ def download_polygon_data():
             
         print(f"Attempting to download: {s3_key}")
 
-        
-        s3.download_file(BUCKET_NAME, s3_key, local_filepath)
+        object_key = 'us_stocks_sip/minute_aggs_v1/2025/07/2025-07-10.csv.gz'
+        s3.download_file(BUCKET_NAME, object_key, local_filepath)
         print(f"-> Successfully downloaded to {local_filepath}")
         
         # Move to the next day
