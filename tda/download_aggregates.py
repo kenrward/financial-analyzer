@@ -48,7 +48,7 @@ def download_polygon_data():
     
     # Calculate date range (last 180 days)
     end_date = datetime.now() - timedelta(days=1)
-    start_date = end_date - timedelta(days=180)
+    start_date = end_date - timedelta(days=2)
 
     # Loop through each day in the date range
     current_date = start_date
