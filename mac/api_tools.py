@@ -10,39 +10,29 @@ from pydantic import BaseModel, Field
 
 log = logging.getLogger(__name__)
 
-# --- Reusable HTTP Client ---
+# Reusable HTTP Client & Concurrency Limiter
 async_client = httpx.AsyncClient(verify=False, timeout=60)
-
-# --- Concurrency Limiter (Semaphore) ---
 POLYGON_API_SEMAPHORE = asyncio.Semaphore(10)
 
-# --- Base URL Configuration ---
+# Base URL Configuration
 DATA_API_BASE_URL = "https://tda.kewar.org"
 TA_API_BASE_URL = "https://tta.kewar.org"
 
+# --- Component Functions ---
 
-# --- Reliable Optionable Check using httpx ---
 async def _is_ticker_optionable(ticker: str) -> bool:
-    """Checks if a ticker is optionable using httpx and a semaphore."""
+    """Checks if a ticker is optionable using a direct API call."""
     url = "https://api.polygon.io/v3/reference/options/contracts"
-    params = {
-        "underlying_ticker": ticker,
-        "limit": 1,
-        "apiKey": os.getenv("POLYGON_API_KEY")
-    }
-    
+    params = {"underlying_ticker": ticker, "limit": 1, "apiKey": os.getenv("POLYGON_API_KEY")}
     async with POLYGON_API_SEMAPHORE:
         try:
             response = await async_client.get(url, params=params)
             response.raise_for_status()
-            data = response.json()
-            return len(data.get("results", [])) > 0
+            return len(response.json().get("results", [])) > 0
         except Exception as e:
             log.error(f"Could not check optionability for {ticker}: {e}")
             return False
 
-
-# --- Component Functions ---
 async def _get_most_active_stocks(limit: int = 100):
     url = f"{DATA_API_BASE_URL}/most-active-stocks"
     try:
@@ -52,17 +42,7 @@ async def _get_most_active_stocks(limit: int = 100):
     except Exception as e:
         log.error(f"Failed to get active stocks: {e}")
         return {"error": "Failed to get active stocks"}
-async def _get_live_price(ticker: str):
-    """Async helper to get the live price."""
-    url = f"{DATA_API_BASE_URL}/last-trade/{ticker}"
-    try:
-        response = await async_client.get(url)
-        response.raise_for_status()
-        return response.json().get("price", "N/A")
-    except Exception as e:
-        log.error(f"Failed to get live price for {ticker}: {e}")
-        return "N/A"
-    
+
 async def _get_news_for_ticker(ticker: str, days: int = 7):
     url = f"{DATA_API_BASE_URL}/news/{ticker}"
     params = {"days": days}
@@ -74,16 +54,11 @@ async def _get_news_for_ticker(ticker: str, days: int = 7):
         log.error(f"Failed to get news for {ticker}: {e}")
         return {"error": f"Failed news for {ticker}"}
 
-# --- ✅ CORRECTED FUNCTION ---
 async def _get_and_analyze_ticker(ticker: str):
-    """
-    Calls the TA API, which now reads from the local data store.
-    We only need to send the ticker.
-    """
+    """Calls the TA API, which reads from the local data store."""
     try:
         async with httpx.AsyncClient(verify=False) as session:
             ta_url = f"{TA_API_BASE_URL}/analyze"
-            # The TA service now only needs the ticker in the payload
             payload = {"ticker": ticker}
             ta_response = await session.post(ta_url, json=payload)
             ta_response.raise_for_status()
@@ -101,7 +76,10 @@ async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
         return json.dumps({"error": "Could not retrieve active stocks."})
 
     active_stocks = active_stocks_data["top_stocks"]
-    # We no longer need the price_lookup here, as we'll fetch live prices later
+    
+    # ✅ Re-instated the original price_lookup method
+    price_lookup = {stock['ticker']: stock.get('close_price') for stock in active_stocks}
+    
     log.info(f"Found {len(active_stocks)} active stocks. Filtering for optionable tickers...")
 
     optionable_tasks = {stock['ticker']: _is_ticker_optionable(stock['ticker']) for stock in active_stocks}
@@ -113,32 +91,40 @@ async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
     if not optionable_tickers:
         return json.dumps([], indent=2)
 
-    # Concurrently fetch TA, news, AND the live price for the filtered list
+    # Concurrently fetch analysis and news for the filtered list
     analysis_tasks = {ticker: _get_and_analyze_ticker(ticker) for ticker in optionable_tickers}
     news_tasks = {ticker: _get_news_for_ticker(ticker) for ticker in optionable_tickers}
-    price_tasks = {ticker: _get_live_price(ticker) for ticker in optionable_tickers}
     
-    analysis_results, news_results, price_results = await asyncio.gather(
+    analysis_results, news_results = await asyncio.gather(
         asyncio.gather(*analysis_tasks.values()),
-        asyncio.gather(*news_tasks.values()),
-        asyncio.gather(*price_tasks.values())
+        asyncio.gather(*news_tasks.values())
     )
     
     analysis_map = {ticker: res for ticker, res in zip(analysis_tasks.keys(), analysis_results)}
     news_map = {ticker: res for ticker, res in zip(news_tasks.keys(), news_results)}
-    price_map = {ticker: res for ticker, res in zip(price_tasks.keys(), price_results)}
 
     final_results = []
     for ticker in optionable_tickers:
         final_results.append({
             "ticker": ticker,
-            "price": price_map.get(ticker, "N/A"), # Use the live price
+            # ✅ Using the price from the initial "most active" list
+            "price": price_lookup.get(ticker, "N/A"),
             "technical_analysis": analysis_map.get(ticker),
             "news": news_map.get(ticker)
         })
 
     return json.dumps(final_results, indent=2)
 
-# This is no longer needed since we call the function directly
-# from agent_core.py, but it doesn't hurt to leave it.
-tools = []
+# --- Pydantic Schema and Tool Definition ---
+class FindAndAnalyzeActiveStocksInput(BaseModel):
+    limit: int = Field(5, description="The number of top active stocks to analyze.")
+
+tools = [
+    StructuredTool.from_function(
+        func=_find_and_analyze_active_stocks,
+        name="find_and_analyze_top_stocks",
+        description="The primary tool to get a full trading analysis for optionable stocks.",
+        args_schema=FindAndAnalyzeActiveStocksInput,
+        coroutine=_find_and_analyze_active_stocks
+    )
+]

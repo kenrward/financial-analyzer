@@ -74,7 +74,7 @@ async def run_trading_analysis_workflow(limit: int):
         | TICKER | $PRICE | Outlook | Justification |
         """
         
-        logging.info(f"Synthesizing report for: {stock_data.get('ticker')}")
+        logging.info(f"Synthesizing report for: {stock_data.get('ticker')} at price {stock_data.get('price')}")
         response = await llm.ainvoke(single_stock_prompt)
         table_row = response.content.strip().replace("'", "")
         print(table_row)
