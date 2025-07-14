@@ -64,7 +64,7 @@ def download_polygon_data():
     for page in paginator.paginate(Bucket='flatfiles', Prefix=prefix):
         for obj in page['Contents']:
             print(obj['Key'])
-            s3.download_file(bucket_name, obj['Key'], DESTINATION_DIR)
+            #s3.download_file(bucket_name, obj['Key'], DESTINATION_DIR)
 
 if __name__ == "__main__":
     download_polygon_data()
