@@ -70,8 +70,8 @@ if __name__ == "__main__":
     # To build your database initially for the last 3 years,
     # you can uncomment and run this loop:
     #
-    logging.info("Starting initial backfill for the last 3 years...")
-    for i in range(1, 365 * 3):
+    logging.info("Starting initial backfill for the last 1 years...")
+    for i in range(1, 365 * 1):
         target_day = date.today() - timedelta(days=i)
         process_daily_flat_file(target_day)
     logging.info("Initial backfill complete.")
