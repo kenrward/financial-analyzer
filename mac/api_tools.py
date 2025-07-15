@@ -101,7 +101,7 @@ async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
     }
     
     all_results = await asyncio.gather(*initial_data_tasks.values())
-    results_map = dict(zip(data_tasks.keys(), all_results))
+    results_map = dict(zip(initial_data_tasks.keys(), all_results))
     
     final_report = []
     vix_context = await _get_data(f"{TA_API_BASE_URL}/analyze-index/I:VIX")

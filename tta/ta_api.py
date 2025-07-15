@@ -18,39 +18,31 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # --- ✅ V2: More Robust Helper function ---
 def get_data_from_local_store(ticker: str):
     """
-    Reads the parquet file and returns a clean DataFrame for a specific ticker.
-    Now includes data cleaning and more detailed logging.
+    Reads only the necessary rows for a specific ticker from the Parquet store
+    using predicate pushdown filtering.
     """
     try:
-        logging.info(f"Reading master data file from: {DATA_PATH}")
-        df = pd.read_parquet(DATA_PATH)
-        logging.info(f"Successfully read {len(df)} records. Cleaning data...")
+        logging.info(f"Reading data for ticker '{ticker}' from: {DATA_PATH}")
+        
+        # ✅ THE FIX: Use the 'filters' argument to read only the rows where the 'ticker' column matches.
+        # This is extremely memory-efficient.
+        ticker_df = pd.read_parquet(DATA_PATH, filters=[('ticker', '==', ticker)])
 
-        # --- Data Cleaning ---
-        # Ensure the 'ticker' column is a string and strip any whitespace
-        df['ticker'] = df['ticker'].astype(str).str.strip()
-        
-        # Ensure the 'date' column is in datetime format
-        df['date'] = pd.to_datetime(df['date'])
-        
-        logging.info(f"Filtering for ticker: '{ticker}'")
-        ticker_df = df[df['ticker'] == ticker].set_index('date').sort_index()
-        
         if ticker_df.empty:
             logging.warning(f"No data found for ticker '{ticker}' after filtering.")
-            # To help debug, let's see what tickers ARE available
-            available_tickers = df['ticker'].unique()
-            logging.info(f"Sample of available tickers: {available_tickers[:10]}")
             return None
             
         logging.info(f"Found {len(ticker_df)} records for '{ticker}'.")
-        return ticker_df
+        
+        # Process the filtered dataframe
+        ticker_df['date'] = pd.to_datetime(ticker_df['date'])
+        return ticker_df.set_index('date').sort_index()
 
     except FileNotFoundError:
         logging.error(f"FATAL: Master data file not found at {DATA_PATH}")
         return None
     except Exception as e:
-        logging.error(f"Failed to read or process local data file: {e}")
+        logging.error(f"Failed to read or process local data file for {ticker}: {e}")
         return None
 
 # --- API Endpoints ---
