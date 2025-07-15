@@ -52,6 +52,7 @@ def analyze_stock_data():
         return jsonify({"error": "Invalid request payload. Requires 'ticker'."}), 400
 
     df = get_data_from_local_store(ticker)
+    logging.info(f"DF: {df}")
 
     if df is None or len(df) < 252: # Require at least a year of data for new calcs
         return jsonify({"message": f"Not enough historical data for {ticker} to perform meaningful analysis."}), 404
