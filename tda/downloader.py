@@ -9,7 +9,7 @@ import logging
 FLAT_FILE_ROOT_PATH = "/mnt/shared-drive/polygon_data/us_stocks_sip/day_aggs_v1"
 
 # The path to your master Parquet file database
-MASTER_PARQUET_PATH = "/mnt/shared-drive/trading_agent_data/us_stocks_daily.parquet"
+MASTER_PARQUET_PATH = "/mnt/shared-drive/us_stocks_daily.parquet"
 
 # --- Setup Logging ---
 logging.basicConfig(

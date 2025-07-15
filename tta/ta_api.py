@@ -10,7 +10,7 @@ app = Flask(__name__)
 
 # --- Configuration ---
 # The path to your local historical data file on the shared drive
-DATA_PATH = "/mnt/shared-drive/trading_agent_data/us_stocks_daily.parquet"
+DATA_PATH = "/mnt/shared-drive/us_stocks_daily.parquet"
 
 # --- Setup Logging ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
