@@ -1,7 +1,7 @@
 # agent_core.py
 
-import nest_asyncio # Import the library
-nest_asyncio.apply() # Apply the patch
+import nest_asyncio
+nest_asyncio.apply()
 
 import asyncio
 import json
@@ -13,17 +13,17 @@ from api_tools import _find_and_analyze_active_stocks
 
 # --- ⚙️ Set up Logging ---
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG, # Changed to DEBUG to see more detail
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler("agent_run.log"),
-        #logging.StreamHandler()
+        logging.StreamHandler()
     ]
 )
 
 # --- Configuration ---
 OLLAMA_BASE_URL = "http://localhost:11434"
-OLLAMA_MODEL = "llama3.1" 
+OLLAMA_MODEL = "llama3.1"
 llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL, temperature=0.2)
 
 
@@ -31,7 +31,7 @@ llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL, temperature=0.2)
 async def run_trading_analysis_workflow(limit: int):
     logging.info(f"🚀 Kicking off Direct Execution Workflow for top {limit} stocks.")
 
-    # --- STEP 1: Directly call the data gathering function ---
+    # STEP 1: Directly call the data gathering function
     logging.info("STEP 1: Directly executing data gathering and analysis tool...")
     raw_data_json_string = await _find_and_analyze_active_stocks(limit)
 
@@ -40,21 +40,29 @@ async def run_trading_analysis_workflow(limit: int):
         return
 
     logging.info("STEP 1 Complete: Raw data successfully retrieved.")
-    logging.debug(f"Full data payload from tool:\n{raw_data_json_string}")
 
-    # --- STEP 2: Iteratively Synthesize the data ---
+    # --- ✅ DEBUGGING STEP ---
+    # Log the raw string from the tool and the object after parsing
+    logging.debug(f"RAW JSON STRING FROM TOOL:\n{raw_data_json_string}")
+    # --- End of Debugging Step ---
+
+    # STEP 2: Iteratively Synthesize the data
     logging.info("STEP 2: Starting iterative synthesis of the report...")
-    
     try:
         results_list = json.loads(raw_data_json_string)
+
+        # --- ✅ DEBUGGING STEP ---
+        logging.debug(f"PARSED RESULTS LIST:\n{results_list}")
+        if results_list:
+            logging.debug(f"TYPE OF FIRST ITEM IN LIST: {type(results_list[0])}")
+        # --- End of Debugging Step ---
+
         if not results_list:
-            logging.warning("No optionable stocks were found to analyze.")
-            print("\n\n--- FINAL REPORT ---")
-            print("No optionable stocks found among the most active stocks.")
+            # ... (rest of function)
             return
+
     except json.JSONDecodeError as e:
-        logging.error(f"❗️ Failed to parse JSON data from Step 1. Error: {e}")
-        logging.error(f"--- Data that failed to parse ---:\n{raw_data_json_string}\n---")
+        # ... (rest of function)
         return
 
     # Print the markdown table header
@@ -62,20 +70,13 @@ async def run_trading_analysis_workflow(limit: int):
     print("| Ticker | Price | Outlook | Justification |")
     print("| :--- | :--- | :--- | :--- |")
 
-    # Loop through each stock's data for synthesis
     for stock_data in results_list:
+        # This is where the original error occurred
         single_stock_prompt = f"""
-        You are a financial analyst. Your task is to complete a single markdown table row for the stock {stock_data.get('ticker')}.
-        The stock's price is ${stock_data.get('price')}.
-        Use the following JSON data blob for your analysis: {json.dumps(stock_data)}
-
-        Determine if the outlook is Bullish, Bearish, or Neutral and write a brief justification.
-        
-        Your entire response MUST be the single, completed markdown table row. Use this exact format:
-        | {stock_data.get('ticker')} | ${stock_data.get('price')} | Outlook | Justification |
+        You are a financial analyst... The data is: {json.dumps(stock_data)}
+        ...
         """
-        logging.info(f"Prompt: {single_stock_prompt}")
-        logging.info(f"Synthesizing report for: {stock_data.get('ticker')} at price {stock_data.get('price')}")
+        logging.info(f"Synthesizing report for: {stock_data.get('ticker')}")
         response = await llm.ainvoke(single_stock_prompt)
         table_row = response.content.strip().replace("'", "")
         print(table_row)
@@ -86,6 +87,5 @@ async def run_trading_analysis_workflow(limit: int):
 # --- Main Execution Block ---
 if __name__ == '__main__':
     logging.info("Agent starting up...")
-    # Define how many stocks to analyze here
-    NUM_STOCKS_TO_ANALYZE = 25
+    NUM_STOCKS_TO_ANALYZE = 5 # Using a smaller number for faster debugging
     asyncio.run(run_trading_analysis_workflow(limit=NUM_STOCKS_TO_ANALYZE))
