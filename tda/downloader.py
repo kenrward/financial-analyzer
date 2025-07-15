@@ -40,9 +40,10 @@ def process_daily_flat_file(target_date: date):
         df = pd.read_csv(file_path, compression='gzip')
         logging.info(f"Successfully read {len(df)} records from {file_path}.")
         
-        # --- Simplified Data Cleaning & Formatting ---
+        # --- Data Cleaning & Formatting ---
         # Convert Unix timestamp (in nanoseconds for flat files) to a proper date
-        df['date'] = pd.to_datetime(df['timestamp'], unit='ns').dt.date
+        # The timestamp column in the flat file is named 't'
+        df['date'] = pd.to_datetime(df['t'], unit='ns').dt.date
         
         # In the daily aggregates flat file, the ticker column is named 'from'
         df.rename(columns={'from': 'ticker'}, inplace=True)
@@ -65,12 +66,19 @@ def process_daily_flat_file(target_date: date):
         logging.info(f"Successfully processed and saved data for {date_str}.")
 
     except FileNotFoundError:
-        logging.warning(f"File not found for {date_str} (likely a weekend or holiday). Skipping.")
+        logging.warning(f"File not found for {date_str} (likely a weekend or market holiday). Skipping.")
     except Exception as e:
         logging.error(f"Failed to process data for {date_str}. Error: {e}", exc_info=True)
 
 
 if __name__ == "__main__":
-    # For a daily cron job, you should process the previous day
+    # For a daily cron job, you should process the previous trading day
     previous_day = date.today() - timedelta(days=1)
+    
+    # You can also loop through a range of dates to backfill your database
+    # For example:
+    # for i in range(1, 10): # Process the last 9 days
+    #     target_day = date.today() - timedelta(days=i)
+    #     process_daily_flat_file(target_day)
+
     process_daily_flat_file(previous_day)
