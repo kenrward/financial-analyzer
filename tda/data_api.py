@@ -119,7 +119,7 @@ def get_options_chain(ticker):
                 "expiration_date": contract.details.expiration_date,
                 "strike_price": contract.details.strike_price,
                 "contract_type": contract.details.contract_type,
-                "implied_volatility": contract.greeks.implied_volatility,
+                "implied_volatility": contract.implied_volatility,
                 "delta": contract.greeks.delta
             })
         
