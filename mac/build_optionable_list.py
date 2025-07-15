@@ -12,7 +12,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 
 # --- Configuration ---
 API_KEY = os.getenv("POLYGON_API_KEY")
-OUTPUT_FILE = "optionable_tickers.json"
 
 BASE_URL = "https://api.polygon.io/v3/reference/tickers"
 
@@ -41,6 +40,6 @@ while next_url:
 
 # Save to JSON file
 with open("optionable_stocks.json", "w") as f:
-    json.dump(OUTPUT_FILE, f, indent=4)
+    json.dump(optionable_stocks, f, indent=4)
 
 print(f"Saved {len(optionable_stocks)} optionable stocks to optionable_stocks.json")
