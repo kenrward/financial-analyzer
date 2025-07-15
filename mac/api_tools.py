@@ -7,86 +7,115 @@ import os
 import httpx
 from langchain.tools import StructuredTool
 from pydantic import BaseModel, Field
-from polygon import RESTClient
 
 log = logging.getLogger(__name__)
 
-# --- Reusable HTTP and Polygon Clients ---
+# Reusable HTTP Client
 async_client = httpx.AsyncClient(verify=False, timeout=60)
-polygon_client = RESTClient(os.getenv("POLYGON_API_KEY"))
 
-# --- Concurrency Limiter ---
-POLYGON_API_SEMAPHORE = asyncio.Semaphore(10)
-
-# --- Base URL Configuration ---
+# Base URL Configuration
 DATA_API_BASE_URL = "https://tda.kewar.org"
 TA_API_BASE_URL = "https://tta.kewar.org"
 OPTIONS_API_BASE_URL = "https://toa.kewar.org"
 
-# --- ✅ V2: Enhanced Optionable Check with Detailed Logging ---
-def _check_options_sync(ticker: str) -> tuple[bool, str]:
-    """
-    Synchronous helper that checks for option contracts.
-    Returns a tuple: (is_optionable, reason_string)
-    """
+# Load Optionable Tickers from Local File
+def _load_optionable_tickers() -> set:
     try:
-        contracts = polygon_client.list_options_contracts(underlying_ticker=ticker, limit=1)
-        next(contracts)
-        return (True, "Has Options")
-    except StopIteration:
-        return (False, "No options found")
+        script_dir = os.path.dirname(__file__)
+        file_path = os.path.join(script_dir, "optionable_tickers.json")
+        with open(file_path, "r") as f:
+            return set(json.load(f))
     except Exception as e:
-        # Capture the specific error from the API client
-        error_message = str(e)
-        log.error(f"Polygon client error checking options for {ticker}: {error_message}")
-        return (False, f"API Error: {error_message}")
+        log.error(f"Could not load optionable_tickers.json: {e}")
+        return set()
 
-async def _is_ticker_optionable(ticker: str) -> tuple[bool, str]:
-    """Asynchronously checks if a ticker is optionable, respecting the semaphore."""
-    async with POLYGON_API_SEMAPHORE:
-        return await asyncio.to_thread(_check_options_sync, ticker)
+OPTIONABLE_TICKER_SET = _load_optionable_tickers()
 
 
-# --- Component Functions (Unchanged) ---
+# --- Component Functions for API Calls ---
 async def _get_most_active_stocks(limit: int = 100):
+    """Fetches the top N most active stocks from the data_api."""
     url = f"{DATA_API_BASE_URL}/most-active-stocks"
-    # ... (rest of function is unchanged)
-    
-# ... (other helper functions like _get_news, _get_ta_analysis, etc. are unchanged) ...
+    try:
+        response = await async_client.get(url, params={"limit": limit})
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        log.error(f"Failed to get active stocks: {e}")
+        # ✅ FIX: Always return a dictionary, even on failure
+        return {"error": "Failed to get active stocks", "top_stocks": []}
 
+async def _get_data(url: str, params: dict = None, json_payload: dict = None):
+    """Generic data fetching helper for other APIs."""
+    try:
+        if json_payload:
+            response = await async_client.post(url, json=json_payload)
+        else:
+            response = await async_client.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as e:
+        return {"error": f"HTTP Error: {e.response.status_code}", "message": e.response.text}
+    except Exception as e:
+        return {"error": "Request Failed", "message": str(e)}
 
-# --- The V2 "Super-Tool" with Enhanced Logging ---
+# --- The V2 "Super-Tool" ---
 async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
     log.info(f"🚀 Kicking off V2 analysis for top {limit} stocks")
     
+    # This call is now safe and will not return None
     active_stocks_data = await _get_most_active_stocks(limit)
+    
+    if "error" in active_stocks_data:
+        log.error(f"Could not proceed due to error from get_most_active_stocks: {active_stocks_data['error']}")
+        return json.dumps(active_stocks_data) # Pass the error along
+
     active_stocks = active_stocks_data.get("top_stocks", [])
     price_lookup = {stock['ticker']: stock.get('close_price') for stock in active_stocks}
-    log.info(f"Found {len(active_stocks)} active stocks. Filtering for optionable tickers...")
-
-    # Concurrently check for optionability
-    optionable_tasks = {stock['ticker']: _is_ticker_optionable(stock['ticker']) for stock in active_stocks}
-    optionable_results = await asyncio.gather(*optionable_tasks.values())
     
-    optionable_tickers = []
-    # Loop through the results to provide detailed logging
-    for ticker, result_tuple in zip(optionable_tasks.keys(), optionable_results):
-        is_optionable, reason = result_tuple
-        if is_optionable:
-            optionable_tickers.append(ticker)
-        else:
-            # This will print the exact reason for skipping
-            log.warning(f"Skipping {ticker} (Reason: {reason})")
-    
+    optionable_tickers = [s['ticker'] for s in active_stocks if s['ticker'] in OPTIONABLE_TICKER_SET]
     log.info(f"Found {len(optionable_tickers)} optionable stocks to analyze: {optionable_tickers}")
 
     if not optionable_tickers:
         return json.dumps([])
 
-    # ... (The rest of the function remains the same) ...
-    # It will now proceed to analyze only the tickers that passed the filter.
+    # Concurrently fetch all initial data
+    initial_data_tasks = {
+        ticker: asyncio.gather(
+            _get_data(f"{TA_API_BASE_URL}/analyze", json_payload={"ticker": ticker}),
+            _get_data(f"{DATA_API_BASE_URL}/options-chain/{ticker}"),
+            _get_data(f"{DATA_API_BASE_URL}/news/{ticker}")
+        ) for ticker in optionable_tickers
+    }
     
-    return json.dumps({"message": "Analysis would continue here..."}, indent=2) # Placeholder return for the test
+    initial_results = await asyncio.gather(*initial_data_tasks.values())
+    results_map = dict(zip(initial_data_tasks.keys(), initial_results))
+    
+    final_report = []
+    for ticker, res in results_map.items():
+        tech_analysis, options_chain, news = res
+
+        if "error" in tech_analysis or "error" in options_chain:
+            volatility_analysis = {"error": "Missing data required for volatility analysis."}
+        else:
+            payload = {
+                "ticker": ticker,
+                "stock_price": price_lookup.get(ticker),
+                "options_chain": options_chain.get("options_chain", []),
+                "historical_volatility": tech_analysis.get("indicators", {}).get("HV_30D_Annualized")
+            }
+            volatility_analysis = await _get_data(f"{OPTIONS_API_BASE_URL}/analyze-volatility", json_payload=payload)
+
+        final_report.append({
+            "ticker": ticker,
+            "price": price_lookup.get(ticker, "N/A"),
+            "news": news,
+            "technical_analysis": tech_analysis,
+            "volatility_analysis": volatility_analysis
+        })
+
+    return json.dumps(final_report, indent=2)
+
 
 # --- Pydantic Schema and Tool Definition ---
 class FindAndAnalyzeActiveStocksInput(BaseModel):
