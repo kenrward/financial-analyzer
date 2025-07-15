@@ -24,14 +24,18 @@ def inspect_parquet_file():
         print("\n--- 📊 DATA SUMMARY ---")
         print(f"Total Records: {len(df)}")
         
-        # Ensure the 'date' column is in datetime format to find min/max
         df['date'] = pd.to_datetime(df['date'])
         min_date = df['date'].min().strftime('%Y-%m-%d')
         max_date = df['date'].max().strftime('%Y-%m-%d')
         print(f"Date Range: {min_date} to {max_date}")
 
-        unique_tickers = sorted(df['ticker'].unique())
-        print(f"Tickers in File ({len(unique_tickers)}): {unique_tickers}")
+        # --- ✅ CORRECTED TICKER HANDLING ---
+        # Get unique tickers from the 'ticker' column
+        unique_tickers_raw = df['ticker'].unique()
+        # Filter out any None or NaN values before sorting
+        clean_tickers = sorted([t for t in unique_tickers_raw if pd.notna(t)])
+        
+        print(f"Tickers in File ({len(clean_tickers)}): {clean_tickers}")
         
         print("\n--- First 5 Rows ---")
         print(df.head())
