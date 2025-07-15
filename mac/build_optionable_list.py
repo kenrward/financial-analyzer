@@ -41,6 +41,6 @@ while next_url:
 
 # Save to JSON file
 with open("optionable_stocks.json", "w") as f:
-    json.dump(optionable_stocks, f, indent=4)
+    json.dump(OUTPUT_FILE, f, indent=4)
 
 print(f"Saved {len(optionable_stocks)} optionable stocks to optionable_stocks.json")
