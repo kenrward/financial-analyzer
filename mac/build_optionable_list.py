@@ -1,3 +1,8 @@
+# build_optionable_list.py
+
+import nest_asyncio # Import the library
+nest_asyncio.apply() # Apply the patch at the very top
+
 import os
 import json
 import logging
@@ -6,7 +11,7 @@ import httpx
 from polygon import RESTClient
 from dotenv import load_dotenv
 from tqdm.asyncio import tqdm_asyncio
-from typing import Union # ✅ Import Union for older Python versions
+from typing import Union
 
 # --- Setup ---
 load_dotenv()
@@ -19,7 +24,6 @@ SEMAPHORE = asyncio.Semaphore(100)
 async_client = httpx.AsyncClient(timeout=30)
 
 
-# ✅ Corrected function signature for Python 3.9
 async def is_ticker_optionable(ticker: str) -> Union[str, None]:
     """
     Makes a single API call to get a ticker's details and checks if it's optionable.
