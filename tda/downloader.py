@@ -36,19 +36,16 @@ def process_daily_flat_file(target_date: date):
     logging.info(f"Processing file: {file_path}")
 
     try:
-        # Read the gzipped CSV file directly into a pandas DataFrame
         df = pd.read_csv(file_path, compression='gzip')
         logging.info(f"Successfully read {len(df)} records from {file_path}.")
         
-        # --- Data Cleaning & Formatting ---
-        # The flat files have different column names
-        df.rename(columns={'ticker': 'T', 'open': 'o', 'high': 'h', 'low': 'l', 'close': 'c', 'volume': 'v', 'timestamp': 't'}, inplace=True)
+        # --- ✅ Simplified Data Cleaning & Formatting ---
         # Convert Unix timestamp (in nanoseconds for flat files) to a proper date
-        df['date'] = pd.to_datetime(df['t'], unit='ns').dt.date
+        df['date'] = pd.to_datetime(df['timestamp'], unit='ns').dt.date
 
-        # Select and reorder columns
-        final_df = df[['date', 'T', 'o', 'h', 'l', 'c', 'v']]
-        final_df = final_df.rename(columns={'T': 'ticker', 'o': 'open', 'h': 'high', 'l': 'low', 'c': 'close', 'v': 'volume'})
+        # Select and rename columns in one step for clarity
+        final_df = df.rename(columns={'from': 'ticker'}) # The ticker column in daily aggs is named 'from'
+        final_df = final_df[['date', 'ticker', 'open', 'high', 'low', 'close', 'volume']]
 
         # --- Store the data ---
         if os.path.exists(MASTER_PARQUET_PATH):
