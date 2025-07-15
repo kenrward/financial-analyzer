@@ -1,5 +1,6 @@
 # build_optionable_list.py
 
+import os
 import logging
 import requests
 import json
