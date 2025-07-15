@@ -1,7 +1,9 @@
 # build_optionable_list.py
 
+import logging
 import requests
 import json
+from dotenv import load_dotenv
 
 # --- Setup ---
 load_dotenv()
