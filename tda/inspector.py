@@ -3,7 +3,7 @@ import pandas as pd
 import os
 
 # The path to your master Parquet file database
-MASTER_PARQUET_PATH = "/mnt/shared-drive/trading_agent_data/us_stocks_daily.parquet"
+MASTER_PARQUET_PATH = "/mnt/shared-drive/us_stocks_daily.parquet"
 
 def inspect_parquet_file():
     """Reads the master Parquet file and prints a summary of its contents."""
