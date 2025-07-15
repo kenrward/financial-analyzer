@@ -52,7 +52,21 @@ def analyze_stock_data():
         return jsonify({"error": "Invalid request payload. Requires 'ticker'."}), 400
 
     df = get_data_from_local_store(ticker)
-    logging.info(f"DF: {df}")
+
+    # --- ✅ TEMPORARY DEBUGGING CODE ---
+    # This block will return the last 5 rows of the dataframe as JSON
+    # so you can see what data the function is working with.
+    if df is not None:
+        # Convert the DataFrame's index (date) to a string for JSON compatibility
+        df.index = df.index.strftime('%Y-%m-%d')
+        # Return the last 5 rows as a dictionary
+        return jsonify({
+            "message": "DEBUG: Showing last 5 rows of data found for ticker.",
+            "ticker": ticker,
+            "record_count": len(df),
+            "dataframe_tail": df.tail(5).to_dict(orient='records')
+        })
+    # --- End of temporary debug code ---
 
     if df is None or len(df) < 252: # Require at least a year of data for new calcs
         return jsonify({"message": f"Not enough historical data for {ticker} to perform meaningful analysis."}), 404
