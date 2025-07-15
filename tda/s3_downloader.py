@@ -37,7 +37,7 @@ DATA_PREFIXES = [
 ]
 
 # Number of past days to sync data for
-DAYS_TO_SYNC = 7
+DAYS_TO_SYNC = 730
 
 # --- Main Script ---
 
