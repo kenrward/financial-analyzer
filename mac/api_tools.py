@@ -10,72 +10,49 @@ from pydantic import BaseModel, Field
 
 log = logging.getLogger(__name__)
 
-# --- Reusable HTTP Client ---
+# Reusable HTTP Client
 async_client = httpx.AsyncClient(verify=False, timeout=60)
 
-# --- Base URL Configuration ---
+# Base URL Configuration
 DATA_API_BASE_URL = "https://tda.kewar.org"
 TA_API_BASE_URL = "https://tta.kewar.org"
-OPTIONS_API_BASE_URL = "https://toa.kewar.org" # ✅ V2: URL for the new options service
+OPTIONS_API_BASE_URL = "https://toa.kewar.org"
 
-# --- Load Optionable Tickers from Local File (Unchanged) ---
+# Load Optionable Tickers from Local File
 def _load_optionable_tickers() -> set:
     try:
         script_dir = os.path.dirname(__file__)
         file_path = os.path.join(script_dir, "optionable_tickers.json")
-        log.info(f"Attempting to load optionable tickers from: {file_path}")
         with open(file_path, "r") as f:
-            tickers = json.load(f)
-            log.info(f"Successfully loaded {len(tickers)} tickers from file.")
-            return set(tickers)
+            return set(json.load(f))
     except Exception as e:
-        log.error(f"Could not load or parse optionable_tickers.json: {e}")
+        log.error(f"Could not load optionable_tickers.json: {e}")
         return set()
 
 OPTIONABLE_TICKER_SET = _load_optionable_tickers()
 
 
 # --- Component Functions for API Calls ---
-async def _get_most_active_stocks(limit: int = 100):
-    url = f"{DATA_API_BASE_URL}/most-active-stocks"
-    response = await async_client.get(url, params={"limit": limit})
-    response.raise_for_status()
-    return response.json()
-
-async def _get_news(ticker: str):
-    url = f"{DATA_API_BASE_URL}/news/{ticker}"
-    response = await async_client.get(url)
-    response.raise_for_status()
-    return response.json()
-
-async def _get_ta_analysis(ticker: str):
-    """Gets all technical analysis, including Historical Volatility."""
-    url = f"{TA_API_BASE_URL}/analyze"
-    response = await async_client.post(url, json={"ticker": ticker})
-    response.raise_for_status()
-    return response.json()
-
-async def _get_options_chain(ticker: str):
-    """Gets the full options chain with IV and greeks."""
-    url = f"{DATA_API_BASE_URL}/options-chain/{ticker}"
-    response = await async_client.get(url)
-    response.raise_for_status()
-    return response.json()
-
-async def _get_volatility_analysis(payload: dict):
-    """Sends data to the new options_api for skew and spread analysis."""
-    url = f"{OPTIONS_API_BASE_URL}/analyze-volatility"
-    response = await async_client.post(url, json=payload)
-    response.raise_for_status()
-    return response.json()
-
+async def _get_data(url: str, params: dict = None, json_payload: dict = None):
+    """Generic data fetching helper."""
+    try:
+        if json_payload:
+            response = await async_client.post(url, json=json_payload)
+        else:
+            response = await async_client.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as e:
+        # Return a structured error that IS JSON serializable
+        return {"error": f"HTTP Error: {e.response.status_code}", "message": e.response.text}
+    except Exception as e:
+        return {"error": "Request Failed", "message": str(e)}
 
 # --- The V2 "Super-Tool" ---
 async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
     log.info(f"🚀 Kicking off V2 analysis for top {limit} stocks")
     
-    # 1. Get active stocks and filter against our local list
-    active_stocks_data = await _get_most_active_stocks(limit)
+    active_stocks_data = await _get_data(f"{DATA_API_BASE_URL}/most-active-stocks", params={"limit": limit})
     active_stocks = active_stocks_data.get("top_stocks", [])
     price_lookup = {stock['ticker']: stock.get('close_price') for stock in active_stocks}
     
@@ -85,45 +62,38 @@ async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
     if not optionable_tickers:
         return json.dumps([])
 
-    # 2. Concurrently fetch all required data for the analysis
-    tasks = {
-        ticker: {
-            "tech_analysis": _get_ta_analysis(ticker),
-            "options_chain": _get_options_chain(ticker),
-            "news": _get_news(ticker)
-        } for ticker in optionable_tickers
+    # Concurrently fetch all initial data
+    initial_data_tasks = {
+        ticker: asyncio.gather(
+            _get_data(f"{TA_API_BASE_URL}/analyze", json_payload={"ticker": ticker}),
+            _get_data(f"{DATA_API_BASE_URL}/options-chain/{ticker}"),
+            _get_data(f"{DATA_API_BASE_URL}/news/{ticker}")
+        ) for ticker in optionable_tickers
     }
     
-    results = {}
-    for ticker, funcs in tasks.items():
-        results[ticker] = await asyncio.gather(*funcs.values(), return_exceptions=True)
-
-    # 3. Assemble the final report, calling the options_api for the final analysis step
+    initial_results = await asyncio.gather(*initial_data_tasks.values())
+    results_map = dict(zip(initial_data_tasks.keys(), initial_results))
+    
     final_report = []
-    for ticker in optionable_tickers:
-        tech_analysis, options_chain, news = results[ticker]
-        
-        # Check for errors in the fetched data
-        if isinstance(tech_analysis, Exception) or isinstance(options_chain, Exception):
-            log.error(f"Skipping volatility analysis for {ticker} due to data fetching error.")
-            # Still append what we have
-            final_report.append({"ticker": ticker, "price": price_lookup.get(ticker), "news": news, "technical_analysis": tech_analysis, "volatility_analysis": {"error": "Missing data for analysis."}})
-            continue
+    for ticker, res in results_map.items():
+        tech_analysis, options_chain, news = res
 
-        # Prepare payload for the new options_api service
-        volatility_payload = {
-            "ticker": ticker,
-            "stock_price": price_lookup.get(ticker),
-            "options_chain": options_chain.get("options_chain", []),
-            "historical_volatility": tech_analysis.get("indicators", {}).get("HV_30D_Annualized")
-        }
-        
-        # Call the options_api for the final piece of analysis
-        volatility_analysis = await _get_volatility_analysis(volatility_payload)
+        # ✅ --- THE FIX: Handle potential errors gracefully ---
+        # If primary data is missing, we can't do the volatility analysis
+        if "error" in tech_analysis or "error" in options_chain:
+            volatility_analysis = {"error": "Missing data required for volatility analysis."}
+        else:
+            payload = {
+                "ticker": ticker,
+                "stock_price": price_lookup.get(ticker),
+                "options_chain": options_chain.get("options_chain", []),
+                "historical_volatility": tech_analysis.get("indicators", {}).get("HV_30D_Annualized")
+            }
+            volatility_analysis = await _get_data(f"{OPTIONS_API_BASE_URL}/analyze-volatility", json_payload=payload)
 
         final_report.append({
             "ticker": ticker,
-            "price": price_lookup.get(ticker),
+            "price": price_lookup.get(ticker, "N/A"),
             "news": news,
             "technical_analysis": tech_analysis,
             "volatility_analysis": volatility_analysis
