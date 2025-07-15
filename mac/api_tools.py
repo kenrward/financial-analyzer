@@ -1,5 +1,4 @@
 # api_tools.py
-
 import asyncio
 import json
 import logging
@@ -33,20 +32,8 @@ OPTIONABLE_TICKER_SET = _load_optionable_tickers()
 
 
 # --- Component Functions for API Calls ---
-async def _get_most_active_stocks(limit: int = 100):
-    """Fetches the top N most active stocks from the data_api."""
-    url = f"{DATA_API_BASE_URL}/most-active-stocks"
-    try:
-        response = await async_client.get(url, params={"limit": limit})
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        log.error(f"Failed to get active stocks: {e}")
-        # ✅ FIX: Always return a dictionary, even on failure
-        return {"error": "Failed to get active stocks", "top_stocks": []}
-
 async def _get_data(url: str, params: dict = None, json_payload: dict = None):
-    """Generic data fetching helper for other APIs."""
+    """Generic data fetching helper."""
     try:
         if json_payload:
             response = await async_client.post(url, json=json_payload)
@@ -63,12 +50,9 @@ async def _get_data(url: str, params: dict = None, json_payload: dict = None):
 async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
     log.info(f"🚀 Kicking off V2 analysis for top {limit} stocks")
     
-    # This call is now safe and will not return None
-    active_stocks_data = await _get_most_active_stocks(limit)
-    
+    active_stocks_data = await _get_data(f"{DATA_API_BASE_URL}/most-active-stocks", params={"limit": limit})
     if "error" in active_stocks_data:
-        log.error(f"Could not proceed due to error from get_most_active_stocks: {active_stocks_data['error']}")
-        return json.dumps(active_stocks_data) # Pass the error along
+        return json.dumps(active_stocks_data)
 
     active_stocks = active_stocks_data.get("top_stocks", [])
     price_lookup = {stock['ticker']: stock.get('close_price') for stock in active_stocks}
@@ -79,7 +63,6 @@ async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
     if not optionable_tickers:
         return json.dumps([])
 
-    # Concurrently fetch all initial data
     initial_data_tasks = {
         ticker: asyncio.gather(
             _get_data(f"{TA_API_BASE_URL}/analyze", json_payload={"ticker": ticker}),
@@ -94,10 +77,18 @@ async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
     final_report = []
     for ticker, res in results_map.items():
         tech_analysis, options_chain, news = res
+        volatility_analysis = {}
 
-        if "error" in tech_analysis or "error" in options_chain:
-            volatility_analysis = {"error": "Missing data required for volatility analysis."}
+        # ✅ --- THE FIX: More specific error checking ---
+        # Check each dependency before proceeding.
+        if "error" in tech_analysis:
+            log.warning(f"TA failed for {ticker}: {tech_analysis.get('message')}")
+            volatility_analysis = {"error": "Technical analysis data was unavailable."}
+        elif "error" in options_chain:
+            log.warning(f"Options chain failed for {ticker}: {options_chain.get('message')}")
+            volatility_analysis = {"error": "Options chain data was unavailable."}
         else:
+            # If both dependencies are good, call the volatility analysis service
             payload = {
                 "ticker": ticker,
                 "stock_price": price_lookup.get(ticker),
