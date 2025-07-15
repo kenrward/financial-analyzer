@@ -19,19 +19,29 @@ DATA_API_BASE_URL = "https://tda.kewar.org"
 TA_API_BASE_URL = "https://tta.kewar.org"
 OPTIONS_API_BASE_URL = "https://toa.kewar.org"
 
-# --- ✅ CORRECTED: Load Optionable Tickers from Local File ---
+# --- ✅ CORRECTED: Load Optionable Tickers from Complex JSON File ---
 def _load_optionable_tickers() -> set:
-    """Loads the set of optionable tickers from the local JSON file."""
+    """
+    Loads the list of optionable ticker objects from the local JSON file
+    and extracts just the ticker symbols.
+    """
     try:
         script_dir = os.path.dirname(__file__)
-        # FIX: Changed filename to match yours
-        file_path = os.path.join(script_dir, "optionable_stocks.json") 
+        file_path = os.path.join(script_dir, "optionable_stocks.json")
         
         log.info(f"Attempting to load optionable tickers from: {file_path}")
         with open(file_path, "r") as f:
-            tickers = json.load(f)
-            log.info(f"Successfully loaded {len(tickers)} tickers from file.")
+            # Load the list of dictionary objects
+            data_objects = json.load(f)
+            # Use a list comprehension to extract the 'ticker' value from each object
+            tickers = [item['ticker'] for item in data_objects if 'ticker' in item]
+            
+            log.info(f"Successfully loaded and extracted {len(tickers)} tickers from file.")
+            # Using a set provides very fast lookups
             return set(tickers)
+    except FileNotFoundError:
+        log.warning(f"optionable_stocks.json not found at {file_path}. No stocks will be filtered.")
+        return set()
     except Exception as e:
         log.error(f"Could not load or parse optionable_stocks.json: {e}")
         return set()
@@ -91,7 +101,7 @@ async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
     }
     
     all_results = await asyncio.gather(*initial_data_tasks.values())
-    results_map = dict(zip(initial_data_tasks.keys(), all_results))
+    results_map = dict(zip(data_tasks.keys(), all_results))
     
     final_report = []
     vix_context = await _get_data(f"{TA_API_BASE_URL}/analyze-index/I:VIX")
