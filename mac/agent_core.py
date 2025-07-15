@@ -6,6 +6,7 @@ nest_asyncio.apply()
 import asyncio
 import json
 import logging
+import argparse 
 from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage
 
@@ -28,12 +29,12 @@ llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL, temperature=0.2)
 
 
 # --- The Main Orchestration Function ---
-async def run_trading_analysis_workflow(limit: int):
-    logging.info(f"🚀 Kicking off V2 Direct Execution Workflow for {limit} stocks.")
+async def run_trading_analysis_workflow(limit: int, min_price: float): 
+    logging.info(f"🚀 Kicking off workflow for {limit} stocks with min price of ${min_price}.")
 
     # STEP 1: Directly call the data gathering function
     logging.info("STEP 1: Directly executing data gathering and analysis tool...")
-    raw_data_json_string = await _find_and_analyze_active_stocks(limit)
+    raw_data_json_string = await _find_and_analyze_active_stocks(limit=limit, min_price=min_price)
 
     if not raw_data_json_string:
         logging.error("❗️ Tool execution returned no data.")
@@ -89,6 +90,21 @@ async def run_trading_analysis_workflow(limit: int):
 
 # --- Main Execution Block ---
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="LLM-Powered Trading Agent")
+    parser.add_argument(
+        "--limit", 
+        type=int, 
+        default=5, 
+        help="The number of random optionable stocks to analyze."
+    )
+    parser.add_argument(
+        "--min-p", 
+        type=float, 
+        default=10.0, # Default to a minimum price of $10
+        dest='min_price', # maps the argument to the min_price variable
+        help="The minimum stock price to consider for analysis."
+    )
+    args = parser.parse_args()
+    
     logging.info("Agent starting up...")
-    NUM_STOCKS_TO_ANALYZE = 5
-    asyncio.run(run_trading_analysis_workflow(limit=NUM_STOCKS_TO_ANALYZE))
+    asyncio.run(run_trading_analysis_workflow(limit=args.limit, min_price=args.min_price))

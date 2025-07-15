@@ -73,31 +73,43 @@ async def _get_prices_for_tickers(tickers: list):
 
 
 # --- The V2 "Super-Tool" ---
-async def _find_and_analyze_active_stocks(limit: int = 5) -> str:
+async def _find_and_analyze_active_stocks(limit: int = 5, min_price: float = 0.0) -> str: # ✅ V2: Add min_price parameter
     log.info(f"🚀 Kicking off V2 analysis for a random sample of {limit} stocks")
     
     if not OPTIONABLE_TICKER_SET:
         return json.dumps({"error": "The list of optionable tickers is empty or could not be loaded."})
 
+    # 1. Select a random sample of tickers from our master list
     sample_size = min(limit, len(OPTIONABLE_TICKER_SET))
     tickers_to_analyze = random.sample(list(OPTIONABLE_TICKER_SET), sample_size)
-    log.info(f"Selected random sample for analysis: {tickers_to_analyze}")
+    log.info(f"Selected random initial sample: {tickers_to_analyze}")
     
+    # 2. Get the last known price for our sample in one batch
     price_data = await _get_prices_for_tickers(tickers_to_analyze)
     price_lookup = {
         result['ticker']: result.get('session', {}).get('close')
         for result in price_data.get('results', [])
+        if result.get('session') and result.get('session').get('close') is not None
     }
 
+    # ✅ V2: Filter the tickers based on the minimum price
+    filtered_tickers = [
+        ticker for ticker in tickers_to_analyze 
+        if price_lookup.get(ticker, 0) >= min_price
+    ]
+    log.info(f"Found {len(filtered_tickers)} stocks above min price of ${min_price}: {filtered_tickers}")
+
+    if not filtered_tickers:
+        return json.dumps([])
+
+    # 3. Concurrently fetch all other required data for the *filtered* list
     initial_data_tasks = {
         ticker: asyncio.gather(
             _get_data(f"{TA_API_BASE_URL}/analyze", json_payload={"ticker": ticker}),
             _get_data(f"{DATA_API_BASE_URL}/options-chain/{ticker}"),
-            _get_data(f"{DATA_API_BASE_URL}/news/{ticker}"),
-            _get_data(f"{DATA_API_BASE_URL}/dividends/{ticker}"),
-            _get_data(f"{DATA_API_BASE_URL}/earnings-calendar/{ticker}"),
-            return_exceptions=True
-        ) for ticker in tickers_to_analyze
+            _get_data(f"{DATA_API_BASE_URL}/news/{ticker}")
+            # ... other data calls ...
+        ) for ticker in filtered_tickers # Use the filtered list here
     }
     
     all_results = await asyncio.gather(*initial_data_tasks.values())
