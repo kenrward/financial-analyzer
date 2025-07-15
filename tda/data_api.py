@@ -113,7 +113,7 @@ def get_options_chain(ticker):
     """Fetches the full options chain snapshot for a given ticker from Polygon."""
     try:
         # The client's get_options_chain method gets the snapshot with greeks
-        chain = client.get_options_chain(ticker)
+        chain = client.get_snapshot_options_chain(ticker)
         
         if not chain:
             return jsonify({"message": f"No options chain data found for {ticker}"}), 404
