@@ -13,8 +13,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 # --- Configuration ---
 API_KEY = os.getenv("POLYGON_API_KEY")
 OUTPUT_FILE = "optionable_tickers.json"
-SEMAPHORE = asyncio.Semaphore(100) 
-async_client = httpx.AsyncClient(timeout=30)
 
 BASE_URL = "https://api.polygon.io/v3/reference/tickers"
 
