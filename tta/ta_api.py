@@ -68,7 +68,7 @@ def analyze_stock_data():
     df = get_data_from_local_store(ticker)
 
     if df is None or len(df) < 252:
-        return jsonify({"message": f"Not enough historical data for {ticker} to perform meaningful analysis."}), 404
+        return jsonify({"message": f"Not enough historical data for {ticker} to perform meaningful analysis. {df}"}), 404
 
     analysis_results = {"ticker": ticker, "patterns": [], "indicators": {}}
     try:
