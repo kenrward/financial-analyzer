@@ -40,21 +40,22 @@ def process_daily_flat_file(target_date: date):
         df = pd.read_csv(file_path, compression='gzip')
         logging.info(f"Successfully read {len(df)} records from {file_path}.")
         
-        # --- Data Cleaning & Formatting ---
-        # The flat files have different column names
-        df.rename(columns={'ticker': 'T', 'open': 'o', 'high': 'h', 'low': 'l', 'close': 'c', 'volume': 'v', 'timestamp': 't'}, inplace=True)
+        # --- Simplified Data Cleaning & Formatting ---
         # Convert Unix timestamp (in nanoseconds for flat files) to a proper date
-        df['date'] = pd.to_datetime(df['t'], unit='ns').dt.date
+        df['date'] = pd.to_datetime(df['timestamp'], unit='ns').dt.date
+        
+        # In the daily aggregates flat file, the ticker column is named 'from'
+        df.rename(columns={'from': 'ticker'}, inplace=True)
 
-        # Select and reorder columns
-        final_df = df[['date', 'T', 'o', 'h', 'l', 'c', 'v']]
-        final_df = final_df.rename(columns={'T': 'ticker', 'o': 'open', 'h': 'high', 'l': 'low', 'c': 'close', 'v': 'volume'})
+        # Select the columns we need for our database
+        final_df = df[['date', 'ticker', 'open', 'high', 'low', 'close', 'volume']]
 
         # --- Store the data ---
         if os.path.exists(MASTER_PARQUET_PATH):
             logging.info(f"Appending data to existing file: {MASTER_PARQUET_PATH}")
             existing_df = pd.read_parquet(MASTER_PARQUET_PATH)
-            combined_df = pd.concat([existing_df, final_df]).drop_duplicates(subset=['date', 'ticker'], keep='last')
+            # Combine new and old data, remove any duplicates for the given date, then save.
+            combined_df = pd.concat([existing_df[existing_df['date'] != pd.to_datetime(target_date).date()], final_df])
             combined_df.to_parquet(MASTER_PARQUET_PATH, engine='pyarrow', compression='snappy', index=False)
         else:
             logging.info(f"Creating new data file: {MASTER_PARQUET_PATH}")
@@ -70,15 +71,6 @@ def process_daily_flat_file(target_date: date):
 
 
 if __name__ == "__main__":
-    # To build your database initially, you can loop through a range of dates
-    # For example, to process all of June 2025:
-    # start = date(2025, 6, 1)
-    # end = date(2025, 6, 30)
-    # current_date = start
-    # while current_date <= end:
-    #     process_daily_flat_file(current_date)
-    #     current_date += timedelta(days=1)
-
-    # For a daily cron job, you would just process the previous day
-    previous_day = date.today() - timedelta(days=15)
+    # For a daily cron job, you should process the previous day
+    previous_day = date.today() - timedelta(days=1)
     process_daily_flat_file(previous_day)
