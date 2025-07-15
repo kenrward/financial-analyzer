@@ -24,13 +24,13 @@ def _load_optionable_tickers() -> set:
     """Loads the set of optionable tickers from the local JSON file."""
     try:
         script_dir = os.path.dirname(__file__)
-        file_path = os.path.join(script_dir, "optionable_tickers.json")
+        file_path = os.path.join(script_dir, "optionable_stocks.json")
         with open(file_path, "r") as f:
             tickers = json.load(f)
             log.info(f"Successfully loaded {len(tickers)} optionable tickers from file.")
             return set(tickers)
     except Exception as e:
-        log.error(f"Could not load or parse optionable_tickers.json: {e}")
+        log.error(f"Could not load or parse optionable_stocks.json: {e}")
         return set()
 
 OPTIONABLE_TICKER_SET = _load_optionable_tickers()
