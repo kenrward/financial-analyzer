@@ -19,24 +19,30 @@ DATA_API_BASE_URL = "https://tda.kewar.org"
 TA_API_BASE_URL = "https://tta.kewar.org"
 OPTIONS_API_BASE_URL = "https://toa.kewar.org"
 
-# --- Component Functions for API Calls ---
-async def _get_data(url: str, json_payload: dict = None):
-    """Generic data fetching helper."""
+# --- ✅ CORRECTED: Generic helper for making API calls ---
+async def _get_data(url: str, params: dict = None, json_payload: dict = None):
+    """Generic data fetching helper that handles both GET and POST requests."""
     try:
         if json_payload:
+            # This is for POST requests
             response = await async_client.post(url, json=json_payload, timeout=120)
         else:
-            response = await async_client.get(url, timeout=120)
+            # This is for GET requests
+            response = await async_client.get(url, params=params, timeout=120)
         response.raise_for_status()
         return response.json()
+    except httpx.HTTPStatusError as e:
+        return {"error": f"HTTP Error: {e.response.status_code}", "message": e.response.text}
     except Exception as e:
         return {"error": "Request Failed", "message": str(e)}
 
+# --- Component Functions for API Calls ---
 async def _get_prices_for_tickers(tickers: list):
     """Uses the Unified Snapshot to get the last price for a list of tickers."""
     ticker_str = ",".join(tickers)
     url = f"https://api.polygon.io/v3/snapshot?ticker.any_of={ticker_str}"
     params = {"apiKey": os.getenv("POLYGON_API_KEY")}
+    # This call will now work correctly
     return await _get_data(url, params=params)
 
 # --- The V2 "Super-Tool" ---
