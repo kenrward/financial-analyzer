@@ -91,19 +91,8 @@ async def run_trading_analysis_workflow(limit: int, min_price: float):
 # --- Main Execution Block ---
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="LLM-Powered Trading Agent")
-    parser.add_argument(
-        "--limit", 
-        type=int, 
-        default=5, 
-        help="The number of random optionable stocks to analyze."
-    )
-    parser.add_argument(
-        "--min-p", 
-        type=float, 
-        default=10.0, # Default to a minimum price of $10
-        dest='min_price', # maps the argument to the min_price variable
-        help="The minimum stock price to consider for analysis."
-    )
+    parser.add_argument("--limit", type=int, default=5, help="The number of random stocks to analyze.")
+    parser.add_argument("--min-p", type=float, default=10.0, dest='min_price', help="The minimum stock price to analyze.")
     args = parser.parse_args()
     
     logging.info("Agent starting up...")
