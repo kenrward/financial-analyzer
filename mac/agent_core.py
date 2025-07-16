@@ -9,6 +9,7 @@ import logging
 import argparse 
 from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage
+from api_tools import analyze_specific_tickers
 
 from api_tools import _find_and_analyze_active_stocks
 
@@ -34,7 +35,7 @@ async def run_trading_analysis_workflow(limit: int, min_price: float):
 
     # STEP 1: Directly call the data gathering function
     logging.info("STEP 1: Directly executing data gathering and analysis tool...")
-    raw_data_json_string = await _find_and_analyze_active_stocks(limit=limit, min_price=min_price)
+    raw_data_json_string = await analyze_specific_tickers(tickers)
 
     if not raw_data_json_string:
         logging.error("❗️ Tool execution returned no data.")
@@ -88,12 +89,25 @@ async def run_trading_analysis_workflow(limit: int, min_price: float):
     logging.info("✅ Workflow Finished!")
 
 
-# --- Main Execution Block ---
+# --- Main Execution Block with New Argument Parser ---
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="LLM-Powered Trading Agent")
-    parser.add_argument("--limit", type=int, default=5, help="The number of random stocks to analyze.")
-    parser.add_argument("--min-p", type=float, default=10.0, dest='min_price', help="The minimum stock price to analyze.")
+    parser.add_argument(
+        "--tickers", 
+        type=str,
+        required=True,
+        help="A JSON string representing a list of tickers to analyze. E.g., '[\"NVDA\", \"AAPL\"]'"
+    )
     args = parser.parse_args()
     
+    try:
+        # Parse the JSON string from the command line into a Python list
+        ticker_list = json.loads(args.tickers)
+        if not isinstance(ticker_list, list):
+            raise ValueError("Ticker argument must be a JSON list.")
+    except (json.JSONDecodeError, ValueError) as e:
+        logging.error(f"Invalid --tickers format. Please provide a valid JSON list of strings. Error: {e}")
+        exit(1)
+        
     logging.info("Agent starting up...")
-    asyncio.run(run_trading_analysis_workflow(limit=args.limit, min_price=args.min_price))
+    asyncio.run(run_trading_analysis_workflow(tickers=ticker_list))
