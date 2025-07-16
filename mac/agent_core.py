@@ -6,12 +6,13 @@ nest_asyncio.apply()
 import asyncio
 import json
 import logging
-import argparse 
+import argparse
+
 from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage
-from api_tools import analyze_specific_tickers
 
-from api_tools import _find_and_analyze_active_stocks
+# ✅ THE FIX: Import the correct function name
+from api_tools import analyze_specific_tickers
 
 # --- ⚙️ Set up Logging ---
 logging.basicConfig(
@@ -30,21 +31,22 @@ llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL, temperature=0.2)
 
 
 # --- The Main Orchestration Function ---
-async def run_trading_analysis_workflow(limit: int, min_price: float): 
-    logging.info(f"🚀 Kicking off workflow for {limit} stocks with min price of ${min_price}.")
+async def run_trading_analysis_workflow(tickers: list):
+    logging.info(f"🚀 Kicking off Direct Execution Workflow for tickers: {tickers}")
 
-    # STEP 1: Directly call the data gathering function
-    logging.info("STEP 1: Directly executing data gathering and analysis tool...")
+    # --- STEP 1: Directly call the data gathering function ---
+    logging.info("STEP 1: Directly executing data analysis tool...")
+    # ✅ THE FIX: Call the correct function name
     raw_data_json_string = await analyze_specific_tickers(tickers)
-
+    
     if not raw_data_json_string:
         logging.error("❗️ Tool execution returned no data.")
         return
 
-    logging.info("STEP 1 Complete. Raw data successfully retrieved.")
+    logging.info("STEP 1 Complete: Raw data successfully retrieved.")
     logging.debug(f"Full data payload from tool:\n{raw_data_json_string}")
 
-    # STEP 2: Iteratively Synthesize the data
+    # --- STEP 2: Iteratively Synthesize the data ---
     logging.info("STEP 2: Starting iterative synthesis of the report...")
     try:
         results_list = json.loads(raw_data_json_string)
@@ -64,7 +66,6 @@ async def run_trading_analysis_workflow(limit: int, min_price: float):
     print("| :--- | :--- | :--- | :--- |")
 
     for stock_data in results_list:
-        # ✅ V2 FINAL PROMPT
         single_stock_prompt = f"""
         You are a senior options analyst. Your task is to analyze the following data for a single stock and provide a one-line summary for a markdown table.
         The data is: {json.dumps(stock_data)}
@@ -101,7 +102,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     try:
-        # Parse the JSON string from the command line into a Python list
         ticker_list = json.loads(args.tickers)
         if not isinstance(ticker_list, list):
             raise ValueError("Ticker argument must be a JSON list.")
