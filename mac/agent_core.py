@@ -7,19 +7,20 @@ import asyncio
 import json
 import logging
 import argparse
-from datetime import datetime
 
-# We import the analysis function directly
+from langchain_ollama import ChatOllama
+from langchain_core.messages import HumanMessage
+
+# We import the new function directly
 from api_tools import analyze_specific_tickers
 
 # --- ⚙️ Set up Logging ---
-# This logger is for the verbose, technical log file.
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler("agent_run.log"),
-        logging.StreamHandler() # This will still print INFO logs to the console
+        logging.StreamHandler()
     ]
 )
 
