@@ -1,9 +1,14 @@
 # agent_core.py
 
+import nest_asyncio
+nest_asyncio.apply()
+
 import asyncio
 import json
 import logging
 import argparse 
+from langchain_ollama import ChatOllama
+from langchain_core.messages import HumanMessage
 from api_tools import analyze_specific_tickers
 
 from api_tools import _find_and_analyze_active_stocks
