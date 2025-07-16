@@ -1,8 +1,5 @@
 # agent_core.py
 
-import nest_asyncio
-nest_asyncio.apply()
-
 import asyncio
 import json
 import logging
