@@ -13,7 +13,6 @@ API_KEY = os.getenv("POLYGON_API_KEY")
 BASE_URL = "https://api.polygon.io/v3/reference/tickers"
 PRICE_URL_TEMPLATE = "https://api.polygon.io/v2/aggs/ticker/{ticker}/prev"
 
-# Parameters for initial ticker query
 params = {
     "market": "stocks",
     "options": "true",
@@ -22,7 +21,7 @@ params = {
     "apiKey": API_KEY
 }
 
-filtered_stocks = []
+filtered_tickers = []
 next_url = BASE_URL
 
 while next_url:
@@ -36,7 +35,7 @@ while next_url:
         if not symbol:
             continue
 
-        # Fetch previous closing price
+        # Get previous close price
         price_url = PRICE_URL_TEMPLATE.format(ticker=symbol)
         price_resp = requests.get(price_url, params={"apiKey": API_KEY})
         price_data = price_resp.json()
@@ -44,15 +43,15 @@ while next_url:
         try:
             close_price = price_data["results"][0]["c"]
             if close_price > 50:
-                filtered_stocks.append({"ticker": symbol})
+                filtered_tickers.append(symbol)
         except (KeyError, IndexError):
             logging.warning(f"No price data for {symbol}")
 
     next_url = data.get("next_url")
-    params = {}  # Clear for pagination
+    params = {}  # Clear pagination params
 
-# --- Save output as JSON ---
+# --- Save as JSON array ---
 with open("filtered_optionable_tickers.json", "w") as f:
-    json.dump(filtered_stocks, f, indent=4)
+    json.dump(filtered_tickers, f)
 
-print(f"Saved {len(filtered_stocks)} tickers to filtered_optionable_tickers.json")
+print(f"Saved {len(filtered_tickers)} tickers to filtered_optionable_tickers.json")
