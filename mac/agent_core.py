@@ -11,7 +11,7 @@ import argparse
 from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage
 
-# ✅ THE FIX: Import the correct function name
+# We import the new function directly
 from api_tools import analyze_specific_tickers
 
 # --- ⚙️ Set up Logging ---
@@ -36,7 +36,6 @@ async def run_trading_analysis_workflow(tickers: list):
 
     # --- STEP 1: Directly call the data gathering function ---
     logging.info("STEP 1: Directly executing data analysis tool...")
-    # ✅ THE FIX: Call the correct function name
     raw_data_json_string = await analyze_specific_tickers(tickers)
     
     if not raw_data_json_string:
@@ -93,20 +92,28 @@ async def run_trading_analysis_workflow(tickers: list):
 # --- Main Execution Block with New Argument Parser ---
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="LLM-Powered Trading Agent")
+    # ✅ THE FIX: This argument now expects a file path
     parser.add_argument(
         "--tickers", 
         type=str,
         required=True,
-        help="A JSON string representing a list of tickers to analyze. E.g., '[\"NVDA\", \"AAPL\"]'"
+        help="The path to a JSON file containing a list of tickers to analyze."
     )
     args = parser.parse_args()
     
     try:
-        ticker_list = json.loads(args.tickers)
+        # ✅ THE FIX: Open the file path and load the JSON from the file
+        with open(args.tickers, 'r') as f:
+            ticker_list = json.load(f)
+        
         if not isinstance(ticker_list, list):
-            raise ValueError("Ticker argument must be a JSON list.")
+            raise ValueError("Ticker file must contain a valid JSON list.")
+            
+    except FileNotFoundError:
+        logging.error(f"Error: The file specified was not found at '{args.tickers}'")
+        exit(1)
     except (json.JSONDecodeError, ValueError) as e:
-        logging.error(f"Invalid --tickers format. Please provide a valid JSON list of strings. Error: {e}")
+        logging.error(f"Invalid ticker file format. Please provide a valid JSON list of strings. Error: {e}")
         exit(1)
         
     logging.info("Agent starting up...")
