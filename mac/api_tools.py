@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import random
 import httpx
 from langchain.tools import StructuredTool
 from pydantic import BaseModel, Field
@@ -11,38 +12,52 @@ from typing import List
 
 log = logging.getLogger(__name__)
 
-# Reusable HTTP Client
+# --- Reusable HTTP Client ---
 async_client = httpx.AsyncClient(verify=False, timeout=120)
 
-# Base URL Configuration
+# --- Configuration ---
 DATA_API_BASE_URL = "https://tda.kewar.org"
 TA_API_BASE_URL = "https://tta.kewar.org"
 OPTIONS_API_BASE_URL = "https://toa.kewar.org"
 
-# --- ✅ CORRECTED: Generic helper for making API calls ---
-async def _get_data(url: str, params: dict = None, json_payload: dict = None):
-    """Generic data fetching helper that handles both GET and POST requests."""
+# --- ✅ V2: Concurrency Limiter (Semaphore) ---
+# This will ensure we don't send more than 8 concurrent requests to our backend services.
+ANALYSIS_SEMAPHORE = asyncio.Semaphore(8)
+
+# --- Generic helper for making API calls with semaphore ---
+async def _get_data(url: str, json_payload: dict = None, params: dict = None):
+    """Generic data fetching helper that respects the semaphore for analysis services."""
+    # The semaphore is used for our own backend services to prevent overload.
+    # We don't apply it to the external Polygon price check.
+    if "kewar.org" in url:
+        async with ANALYSIS_SEMAPHORE:
+            return await _make_request(url, json_payload, params)
+    else:
+        # For external APIs like Polygon, we don't use our internal semaphore.
+        return await _make_request(url, json_payload, params)
+
+async def _make_request(url: str, json_payload: dict = None, params: dict = None):
+    """The actual request-making logic."""
     try:
         if json_payload:
-            # This is for POST requests
             response = await async_client.post(url, json=json_payload, timeout=120)
         else:
-            # This is for GET requests
             response = await async_client.get(url, params=params, timeout=120)
         response.raise_for_status()
         return response.json()
     except httpx.HTTPStatusError as e:
+        log.error(f"HTTP Error for {url}: {e.response.status_code}")
         return {"error": f"HTTP Error: {e.response.status_code}", "message": e.response.text}
     except Exception as e:
+        log.error(f"Request Failed for {url}: {e}")
         return {"error": "Request Failed", "message": str(e)}
 
-# --- Component Functions for API Calls ---
+# --- Component Functions ---
 async def _get_prices_for_tickers(tickers: list):
     """Uses the Unified Snapshot to get the last price for a list of tickers."""
     ticker_str = ",".join(tickers)
     url = f"https://api.polygon.io/v3/snapshot?ticker.any_of={ticker_str}"
     params = {"apiKey": os.getenv("POLYGON_API_KEY")}
-    # This call will now work correctly
     return await _get_data(url, params=params)
 
 # --- The V2 "Super-Tool" ---
@@ -52,7 +67,7 @@ async def analyze_specific_tickers(tickers_to_analyze: List[str]) -> str:
     if not tickers_to_analyze:
         return json.dumps({"error": "No tickers provided for analysis."})
 
-    # 1. Get the last known price for the provided list
+    # 1. Get prices first (this call is not rate-limited by our semaphore)
     price_data = await _get_prices_for_tickers(tickers_to_analyze)
     price_lookup = {
         result['ticker']: result.get('session', {}).get('close')
@@ -60,7 +75,7 @@ async def analyze_specific_tickers(tickers_to_analyze: List[str]) -> str:
         if result.get('session') and result.get('session').get('close') is not None
     }
 
-    # 2. Concurrently fetch all other required data
+    # 2. Concurrently fetch all other required data, respecting the semaphore limit
     initial_data_tasks = {
         ticker: asyncio.gather(
             _get_data(f"{TA_API_BASE_URL}/analyze", json_payload={"ticker": ticker}),
@@ -107,12 +122,5 @@ async def analyze_specific_tickers(tickers_to_analyze: List[str]) -> str:
 class AnalyzeTickersInput(BaseModel):
     tickers_to_analyze: List[str] = Field(..., description="A list of stock tickers to analyze.")
 
-tools = [
-    StructuredTool.from_function(
-        func=analyze_specific_tickers,
-        name="analyze_stocks",
-        description="The primary tool to get a full trading analysis for a specific list of stocks, including technicals and volatility.",
-        args_schema=AnalyzeTickersInput,
-        coroutine=analyze_specific_tickers
-    )
-]
+# Note: The tool definition is removed as it's no longer needed for direct execution.
+# If you were to use this with an agent again, you would re-add the StructuredTool definition here.
