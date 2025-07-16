@@ -7,20 +7,19 @@ import asyncio
 import json
 import logging
 import argparse
+from datetime import datetime
 
-from langchain_ollama import ChatOllama
-from langchain_core.messages import HumanMessage
-
-# We import the new function directly
+# We import the analysis function directly
 from api_tools import analyze_specific_tickers
 
 # --- ⚙️ Set up Logging ---
+# This logger is for the verbose, technical log file.
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler("agent_run.log"),
-        logging.StreamHandler()
+        logging.StreamHandler() # This will still print INFO logs to the console
     ]
 )
 
@@ -59,10 +58,13 @@ async def run_trading_analysis_workflow(tickers: list):
         logging.error(f"❗️ Failed to parse JSON data from Step 1. Error: {e}")
         return
 
-    # Print the markdown table header
+    # --- ✅ V2: Collect report lines to write to a file ---
+    report_header = "| Ticker | Price | Outlook (for Premium Selling) | Justification |\n| :--- | :--- | :--- | :--- |"
+    report_lines = [report_header]
+
+    # Print the header to the console immediately
     print("\n\n--- FINAL REPORT ---")
-    print("| Ticker | Price | Outlook (for Premium Selling) | Justification |")
-    print("| :--- | :--- | :--- | :--- |")
+    print(report_header)
 
     for stock_data in results_list:
         single_stock_prompt = f"""
@@ -84,15 +86,30 @@ async def run_trading_analysis_workflow(tickers: list):
         logging.info(f"Synthesizing report for: {stock_data.get('ticker')}")
         response = await llm.ainvoke(single_stock_prompt)
         table_row = response.content.strip().replace("'", "")
+        
+        # Print each row to the console as it's generated
         print(table_row)
+        # Add the generated row to our report list
+        report_lines.append(table_row)
+
+    # --- ✅ V2: Write the final report to a file ---
+    try:
+        report_content = "\n".join(report_lines)
+        report_filename = "stock_report.txt"
+        with open(report_filename, "w") as f:
+            f.write(f"Stock Analysis Report - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write("="*50 + "\n\n")
+            f.write(report_content)
+        logging.info(f"✅ Final report saved to {report_filename}")
+    except Exception as e:
+        logging.error(f"Failed to write final report file: {e}")
 
     logging.info("✅ Workflow Finished!")
 
 
-# --- Main Execution Block with New Argument Parser ---
+# --- Main Execution Block ---
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="LLM-Powered Trading Agent")
-    # ✅ THE FIX: This argument now expects a file path
     parser.add_argument(
         "--tickers", 
         type=str,
@@ -102,18 +119,12 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     try:
-        # ✅ THE FIX: Open the file path and load the JSON from the file
         with open(args.tickers, 'r') as f:
             ticker_list = json.load(f)
-        
         if not isinstance(ticker_list, list):
             raise ValueError("Ticker file must contain a valid JSON list.")
-            
-    except FileNotFoundError:
-        logging.error(f"Error: The file specified was not found at '{args.tickers}'")
-        exit(1)
-    except (json.JSONDecodeError, ValueError) as e:
-        logging.error(f"Invalid ticker file format. Please provide a valid JSON list of strings. Error: {e}")
+    except Exception as e:
+        logging.error(f"Error reading or parsing ticker file: {e}")
         exit(1)
         
     logging.info("Agent starting up...")
