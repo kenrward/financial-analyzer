@@ -9,5 +9,8 @@ __pycache__/
 
 # Ignore data files
 data/
+reports/
 
+*/agent_run.log
+stock_report.txt
 agent_run.log
