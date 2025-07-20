@@ -53,12 +53,50 @@ async def _make_request(url: str, json_payload: dict = None, params: dict = None
         return {"error": "Request Failed", "message": str(e)}
 
 # --- Component Functions ---
-async def _get_prices_for_tickers(tickers: list):
-    """Uses the Unified Snapshot to get the last price for a list of tickers."""
-    ticker_str = ",".join(tickers)
-    url = f"https://api.polygon.io/v3/snapshot?ticker.any_of={ticker_str}"
+async def _get_market_status():
+    """Get current market status from Polygon.io"""
+    url = "https://api.polygon.io/v1/marketstatus/now"
     params = {"apiKey": os.getenv("POLYGON_API_KEY")}
     return await _get_data(url, params=params)
+
+async def _get_prices_for_tickers(tickers: list):
+    """Gets the latest price for tickers - uses live price if market open, previous close if closed."""
+    ticker_str = ",".join(tickers)
+    
+    # Check market status first
+    market_status = await _get_market_status()
+    is_market_open = market_status.get("market") == "open"
+    
+    if is_market_open:
+        # Market is open - get live snapshot
+        url = f"https://api.polygon.io/v3/snapshot?ticker.any_of={ticker_str}"
+        params = {"apiKey": os.getenv("POLYGON_API_KEY")}
+        response = await _get_data(url, params=params)
+        # Extract current price from live session data
+        if "results" in response:
+            for result in response["results"]:
+                if "session" in result and "close" in result["session"]:
+                    result["current_price"] = result["session"]["close"]
+                    result["price_type"] = "live"
+        return response
+    else:
+        # Market is closed - get previous close for each ticker
+        results = []
+        for ticker in tickers:
+            url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/prev"
+            params = {"apiKey": os.getenv("POLYGON_API_KEY")}
+            ticker_data = await _get_data(url, params=params)
+            
+            if "results" in ticker_data and ticker_data["results"]:
+                prev_close = ticker_data["results"][0]["c"]
+                results.append({
+                    "ticker": ticker,
+                    "current_price": prev_close,
+                    "price_type": "previous_close",
+                    "session": {"close": prev_close}
+                })
+        
+        return {"results": results, "status": "OK"}
 
 # --- The V2 "Super-Tool" ---
 async def analyze_specific_tickers(tickers_to_analyze: List[str]) -> str:

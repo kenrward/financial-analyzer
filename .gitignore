@@ -14,3 +14,4 @@ reports/
 */agent_run.log
 stock_report.txt
 agent_run.log
+.DS_Store

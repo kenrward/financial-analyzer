@@ -1,5 +1,6 @@
 # agent_core.py
 
+import datetime
 import nest_asyncio
 nest_asyncio.apply()
 
@@ -85,6 +86,7 @@ async def run_trading_analysis_workflow(tickers: list):
         """
         
         logging.info(f"Synthesizing report for: {stock_data.get('ticker')}")
+        logging.info(f"{json.dumps(stock_data)}")
         response = await llm.ainvoke(single_stock_prompt)
         table_row = response.content.strip().replace("'", "")
         
