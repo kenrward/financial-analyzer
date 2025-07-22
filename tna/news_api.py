@@ -6,22 +6,20 @@ from flask import Flask, jsonify, request
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
-from langchain_core.pydantic_v1 import BaseModel, Field
+from pydantic import BaseModel, Field # ✅ V3: Updated import from Pydantic v2
 from typing import List
 
 app = Flask(__name__)
 
 # --- Configuration ---
-# It's recommended to run a separate, smaller Ollama model for this task if possible,
-# but using the main one is fine to start.
-OLLAMA_BASE_URL = "http://192.168.86.67:11434"
+OLLAMA_BASE_URL = "http://localhost:11434"
 OLLAMA_MODEL = "llama3.1" 
 
 # --- Setup Logging ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- Pydantic Model for Structured Output ---
-# This defines the exact JSON structure we want the LLM to return.
+# This class definition is the same, just the import source has changed.
 class NewsAnalysis(BaseModel):
     sentiment_score: float = Field(description="A score from -1.0 (very bearish) to 1.0 (very bullish).")
     summary: str = Field(description="A brief, one-sentence summary of the key themes in the news.")
@@ -37,7 +35,6 @@ try:
         ("human", "Here are the news headlines for the stock:\n\n{headlines}\n\n{format_instructions}")
     ])
 
-    # Create the chain that will process the request
     chain = prompt | llm | parser
 except Exception as e:
     logging.error(f"Failed to initialize LLM chain: {e}")
@@ -63,7 +60,6 @@ def analyze_news():
     if not headlines_list or not isinstance(headlines_list, list):
         return jsonify({"error": "Invalid request payload. Requires a 'headlines' key with a list of strings."}), 400
 
-    # Format the headlines into a simple string for the LLM
     headlines_text = "\n".join(f"- {h}" for h in headlines_list)
 
     try:
@@ -80,5 +76,4 @@ def analyze_news():
         return jsonify({"error": str(e), "message": "Failed to perform news analysis."}), 500
 
 if __name__ == '__main__':
-    # For production, run with Gunicorn
     app.run(host='0.0.0.0', port=5003, debug=True)
