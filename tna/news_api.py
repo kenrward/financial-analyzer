@@ -12,7 +12,7 @@ from typing import List
 app = Flask(__name__)
 
 # --- Configuration ---
-OLLAMA_BASE_URL = "http://192.168.86.67:11434"
+OLLAMA_BASE_URL = "http://mmo.kewar.org"
 OLLAMA_MODEL = "llama3.1" 
 
 # --- Setup Logging ---
