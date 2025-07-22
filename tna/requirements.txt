@@ -1,0 +1,6 @@
+flask
+gunicorn
+requests
+langchain-core
+langchain-ollama
+pydantic
