@@ -24,7 +24,6 @@ ANALYSIS_SEMAPHORE = asyncio.Semaphore(8)
 
 # --- Helper Functions ---
 async def _make_request(url: str, json_payload: dict = None, params: dict = None):
-    """The actual request-making logic."""
     try:
         if json_payload:
             response = await async_client.post(url, json=json_payload, timeout=120)
@@ -37,7 +36,6 @@ async def _make_request(url: str, json_payload: dict = None, params: dict = None
         return {"error": "Request Failed", "message": str(e)}
 
 async def _get_data(url: str, json_payload: dict = None, params: dict = None):
-    """Generic data fetching helper that respects the semaphore for our services."""
     if "kewar.org" in url:
         async with ANALYSIS_SEMAPHORE:
             return await _make_request(url, json_payload, params)
@@ -45,7 +43,6 @@ async def _get_data(url: str, json_payload: dict = None, params: dict = None):
         return await _make_request(url, json_payload, params)
 
 async def _get_prices_for_tickers(tickers: list):
-    """Uses the Unified Snapshot to get the last price for a list of tickers."""
     ticker_str = ",".join(tickers)
     url = f"https://api.polygon.io/v3/snapshot?ticker.any_of={ticker_str}"
     params = {"apiKey": os.getenv("POLYGON_API_KEY")}
@@ -57,6 +54,7 @@ async def analyze_specific_tickers(tickers_to_analyze: List[str]) -> str:
     if not tickers_to_analyze:
         return json.dumps({"error": "No tickers provided."})
 
+    # 1. Get prices first
     price_data = await _get_prices_for_tickers(tickers_to_analyze)
     price_lookup = {
         res['ticker']: res.get('session', {}).get('close')
@@ -64,36 +62,36 @@ async def analyze_specific_tickers(tickers_to_analyze: List[str]) -> str:
         if res.get('session') and res.get('session').get('close') is not None
     }
 
-    tasks = {
+    # 2. Concurrently fetch TA, options chain, and RAW news
+    initial_data_tasks = {
         ticker: asyncio.gather(
             _get_data(f"{TA_API_BASE_URL}/analyze", json_payload={"ticker": ticker}),
             _get_data(f"{DATA_API_BASE_URL}/options-chain/{ticker}"),
             _get_data(f"{DATA_API_BASE_URL}/news/{ticker}"),
-            _get_data(f"{DATA_API_BASE_URL}/dividends/{ticker}"),
-            _get_data(f"{DATA_API_BASE_URL}/earnings-calendar/{ticker}"),
         ) for ticker in tickers_to_analyze
     }
     
-    all_results = await asyncio.gather(*tasks.values())
-    results_map = dict(zip(tasks.keys(), all_results))
+    all_results = await asyncio.gather(*initial_data_tasks.values())
+    results_map = dict(zip(initial_data_tasks.keys(), all_results))
     vix_context = await _get_data(f"{TA_API_BASE_URL}/analyze-index/I:VIX")
     
+    # ✅ 3. V3: Prepare and send news for BATCH analysis
+    news_batch_payload = {}
+    for ticker, res in results_map.items():
+        _, _, news_data = res
+        if isinstance(news_data, dict) and "news" in news_data:
+            # Extract just the headline text
+            news_batch_payload[ticker] = [article['title'] for article in news_data['news']]
+
+    log.info(f"Sending news for {len(news_batch_payload)} tickers to batch analysis service...")
+    analyzed_news = await _get_data(f"{NEWS_API_BASE_URL}/analyze-news-batch", json_payload=news_batch_payload)
+    
+    # 4. Assemble the final report
     final_report = []
     for ticker, res in results_map.items():
-        tech_analysis, options_chain, news, dividends, earnings = res
+        tech_analysis, options_chain, _ = res # We no longer need the raw news here
         stock_price = price_lookup.get(ticker)
         
-        # --- ✅ V3: News Pre-processing Step ---
-        news_analysis = {}
-        if "error" in news or "news" not in news:
-            news_analysis = {"error": "Raw news data was unavailable."}
-        else:
-            # Extract just the headlines to send for analysis
-            headlines = [article['title'] for article in news.get('news', [])]
-            news_payload = {"headlines": headlines}
-            news_analysis = await _get_data(f"{NEWS_API_BASE_URL}/analyze-news", json_payload=news_payload)
-
-        # --- Volatility Analysis Step (Unchanged) ---
         volatility_analysis = {}
         if "error" in tech_analysis or "error" in options_chain or stock_price is None:
             volatility_analysis = {"error": "Missing data for volatility analysis."}
@@ -107,8 +105,8 @@ async def analyze_specific_tickers(tickers_to_analyze: List[str]) -> str:
 
         final_report.append({
             "ticker": ticker, "price": stock_price,
-            "news_analysis": news_analysis, # ✅ V3: Add the structured news analysis
-            "dividends": dividends, "earnings": earnings,
+            # ✅ V3: Use the new, analyzed news object
+            "news_analysis": analyzed_news.get(ticker, {"error": "News analysis failed or was not available."}),
             "technical_analysis": tech_analysis,
             "volatility_analysis": volatility_analysis,
             "market_context": {"vix_rank": vix_context.get("52_week_rank_percent")}
