@@ -13,20 +13,19 @@ import json
 app = Flask(__name__)
 
 # --- Configuration ---
-OLLAMA_BASE_URL = "http://localhost:11434"
+# ✅ V3: Updated to use the new Traefik URL for Ollama
+OLLAMA_BASE_URL = "https://mmo.kewar.org" 
 OLLAMA_MODEL = "llama3.1" 
 
 # --- Setup Logging ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- Pydantic Models for Structured Output ---
-# Defines the analysis for a single stock
 class NewsAnalysis(BaseModel):
     sentiment_score: float = Field(description="A score from -1.0 (very bearish) to 1.0 (very bullish).")
     summary: str = Field(description="A brief, one-sentence summary of the key themes in the news.")
     justification: str = Field(description="A one-sentence justification for the assigned sentiment score.")
 
-# Defines the structure for the entire batch response
 class BatchNewsAnalysis(BaseModel):
     results: Dict[str, NewsAnalysis] = Field(description="A dictionary mapping ticker symbols to their news analysis.")
 
@@ -34,7 +33,6 @@ class BatchNewsAnalysis(BaseModel):
 # --- LLM and Parser Setup ---
 try:
     llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL, temperature=0.1)
-    # The parser now expects the batch structure
     parser = JsonOutputParser(pydantic_object=BatchNewsAnalysis)
 
     prompt = ChatPromptTemplate.from_messages([
@@ -68,13 +66,11 @@ def analyze_news_batch():
 
     try:
         logging.info(f"Analyzing news for {len(payload)} tickers in a single batch...")
-        # The entire payload is converted to a JSON string for the prompt
         analysis_result = chain.invoke({
             "headlines_json": json.dumps(payload, indent=2),
             "format_instructions": parser.get_format_instructions()
         })
         logging.info("Successfully generated batch news analysis.")
-        # The LLM should return a dict with a 'results' key, which we can return directly
         return jsonify(analysis_result.get('results', {})), 200
 
     except Exception as e:
