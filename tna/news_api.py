@@ -34,13 +34,37 @@ try:
     llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL, temperature=0.1)
     parser = JsonOutputParser(pydantic_object=BatchNewsAnalysis)
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are an efficient financial news analyst. Your task is to analyze news headlines for multiple stocks provided in a single JSON object. For each stock, provide a concise summary, a sentiment score, and a justification. Respond ONLY with a single, valid JSON object where the main key is 'results', which contains a dictionary mapping each ticker symbol to its analysis object, formatted according to the provided schema. Do not include any other text or explanations."),
-        ("human", "Here is the JSON object containing news headlines for multiple stocks:\n\n{headlines_json}\n\n{format_instructions}")
-    ])
+    # ✅ V3 FIX: Added a clear example to the prompt to improve output reliability.
+    prompt = ChatPromptTemplate.from_template(
+        """You are an efficient financial news analyst. Your task is to analyze news headlines for multiple stocks provided in a single JSON object. 
+        
+        Respond ONLY with a single, valid JSON object formatted according to the provided schema. Do not include any other text, explanations, or code blocks.
 
-    # ✅ THE FIX: Add a retry mechanism to the chain.
-    # This will automatically re-run the LLM call up to 3 times if the output parsing fails.
+        Here is an example of the exact output format required:
+        ```json
+        {{
+            "results": {{
+                "TICKER1": {{
+                    "sentiment_score": 0.8,
+                    "summary": "The company announced a new product and reported strong earnings.",
+                    "justification": "The news is overwhelmingly positive, focusing on growth and financial performance."
+                }},
+                "TICKER2": {{
+                    "sentiment_score": -0.5,
+                    "summary": "The company is facing regulatory scrutiny and announced a product recall.",
+                    "justification": "The news is negative, highlighting significant business risks."
+                }}
+            }}
+        }}
+        ```
+
+        Here is the JSON object containing the news headlines to analyze:
+        {headlines_json}
+
+        {format_instructions}
+        """
+    )
+
     chain = (prompt | llm | parser).with_retry(
         stop_after_attempt=3,
         retry_if_exception_type=(json.JSONDecodeError, Exception),
