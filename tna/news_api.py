@@ -13,7 +13,6 @@ import json
 app = Flask(__name__)
 
 # --- Configuration ---
-# ✅ V3: Updated to use the new Traefik URL for Ollama
 OLLAMA_BASE_URL = "https://mmo.kewar.org" 
 OLLAMA_MODEL = "llama3.1" 
 
@@ -36,11 +35,16 @@ try:
     parser = JsonOutputParser(pydantic_object=BatchNewsAnalysis)
 
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are an efficient financial news analyst. Your task is to analyze news headlines for multiple stocks provided in a single JSON object. For each stock, provide a concise summary, a sentiment score, and a justification. Respond with a single JSON object where the main key is 'results', which contains a dictionary mapping each ticker symbol to its analysis object, formatted according to the provided schema."),
+        ("system", "You are an efficient financial news analyst. Your task is to analyze news headlines for multiple stocks provided in a single JSON object. For each stock, provide a concise summary, a sentiment score, and a justification. Respond ONLY with a single, valid JSON object where the main key is 'results', which contains a dictionary mapping each ticker symbol to its analysis object, formatted according to the provided schema. Do not include any other text or explanations."),
         ("human", "Here is the JSON object containing news headlines for multiple stocks:\n\n{headlines_json}\n\n{format_instructions}")
     ])
 
-    chain = prompt | llm | parser
+    # ✅ THE FIX: Add a retry mechanism to the chain.
+    # This will automatically re-run the LLM call up to 3 times if the output parsing fails.
+    chain = (prompt | llm | parser).with_retry(
+        stop_after_attempt=3,
+        retry_if_exception_type=(json.JSONDecodeError, Exception),
+    )
 except Exception as e:
     logging.error(f"Failed to initialize LLM chain: {e}")
     chain = None
@@ -78,4 +82,4 @@ def analyze_news_batch():
         return jsonify({"error": str(e), "message": "Failed to perform batch news analysis."}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5003, debug=True)
+    app.run(host='0.0.0.0', port=5003, debug=False)
