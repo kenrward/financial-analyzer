@@ -9,6 +9,7 @@ from langchain_core.output_parsers import JsonOutputParser
 from pydantic import BaseModel, Field
 from typing import List, Dict
 import json
+import asyncio
 
 app = Flask(__name__)
 
@@ -19,59 +20,46 @@ OLLAMA_MODEL = "llama3.1"
 # --- Setup Logging ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# --- Pydantic Models for Structured Output ---
+# --- Pydantic Model for a SINGLE Stock's Analysis ---
+# We simplify the model to what one LLM call should return
 class NewsAnalysis(BaseModel):
     sentiment_score: float = Field(description="A score from -1.0 (very bearish) to 1.0 (very bullish).")
     summary: str = Field(description="A brief, one-sentence summary of the key themes in the news.")
     justification: str = Field(description="A one-sentence justification for the assigned sentiment score.")
 
-class BatchNewsAnalysis(BaseModel):
-    results: Dict[str, NewsAnalysis] = Field(description="A dictionary mapping ticker symbols to their news analysis.")
-
-
-# --- LLM and Parser Setup ---
+# --- LLM and Parser Setup for a SINGLE Analysis ---
 try:
     llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL, temperature=0.1)
-    parser = JsonOutputParser(pydantic_object=BatchNewsAnalysis)
+    # The parser now expects the analysis for just one stock
+    parser = JsonOutputParser(pydantic_object=NewsAnalysis)
 
-    # ✅ V3 FIX: Added a clear example to the prompt to improve output reliability.
-    prompt = ChatPromptTemplate.from_template(
-        """You are an efficient financial news analyst. Your task is to analyze news headlines for multiple stocks provided in a single JSON object. 
-        
-        Respond ONLY with a single, valid JSON object formatted according to the provided schema. Do not include any other text, explanations, or code blocks.
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "You are a financial news analyst. Your task is to analyze a list of news headlines for a single stock. Respond ONLY with a single, valid JSON object formatted according to the provided schema. Do not include any other text or explanations."),
+        ("human", "Here are the news headlines for the stock:\n\n{headlines}\n\n{format_instructions}")
+    ])
 
-        Here is an example of the exact output format required:
-        ```json
-        {{
-            "results": {{
-                "TICKER1": {{
-                    "sentiment_score": 0.8,
-                    "summary": "The company announced a new product and reported strong earnings.",
-                    "justification": "The news is overwhelmingly positive, focusing on growth and financial performance."
-                }},
-                "TICKER2": {{
-                    "sentiment_score": -0.5,
-                    "summary": "The company is facing regulatory scrutiny and announced a product recall.",
-                    "justification": "The news is negative, highlighting significant business risks."
-                }}
-            }}
-        }}
-        ```
-
-        Here is the JSON object containing the news headlines to analyze:
-        {headlines_json}
-
-        {format_instructions}
-        """
-    )
-
-    chain = (prompt | llm | parser).with_retry(
-        stop_after_attempt=3,
-        retry_if_exception_type=(json.JSONDecodeError, Exception),
-    )
+    # This chain is now simpler and more reliable
+    chain = (prompt | llm | parser).with_retry(stop_after_attempt=2)
 except Exception as e:
     logging.error(f"Failed to initialize LLM chain: {e}")
     chain = None
+
+# --- ✅ V3 FIX: Asynchronous worker function for a single ticker ---
+async def analyze_single_ticker(ticker: str, headlines: List[str]):
+    """Analyzes news for one ticker and returns the result."""
+    if not chain:
+        return {"error": "LLM chain not available"}
+    
+    headlines_text = "\n".join(f"- {h}" for h in headlines)
+    try:
+        analysis_result = await chain.ainvoke({
+            "headlines": headlines_text,
+            "format_instructions": parser.get_format_instructions()
+        })
+        return analysis_result
+    except Exception as e:
+        logging.error(f"LLM call failed for ticker {ticker}: {e}")
+        return {"error": f"LLM analysis failed for {ticker}"}
 
 # --- API Endpoints ---
 @app.route('/health', methods=['GET'])
@@ -81,28 +69,29 @@ def health_check():
 @app.route('/analyze-news-batch', methods=['POST'])
 def analyze_news_batch():
     """
-    Receives a batch of news headlines for multiple tickers, uses an LLM to analyze them
-    in a single call, and returns a structured JSON object with the combined analysis.
+    Receives a batch of news, runs analysis for each ticker concurrently,
+    and returns the aggregated results.
     """
-    if not chain:
-        return jsonify({"error": "LLM analysis chain is not available."}), 503
-
     payload = request.get_json()
-
     if not payload or not isinstance(payload, dict):
         return jsonify({"error": "Invalid request payload. Requires a JSON object mapping tickers to headline lists."}), 400
 
-    try:
-        logging.info(f"Analyzing news for {len(payload)} tickers in a single batch...")
-        analysis_result = chain.invoke({
-            "headlines_json": json.dumps(payload, indent=2),
-            "format_instructions": parser.get_format_instructions()
-        })
-        logging.info("Successfully generated batch news analysis.")
-        return jsonify(analysis_result.get('results', {})), 200
+    async def run_concurrent_analysis():
+        tasks = {
+            ticker: analyze_single_ticker(ticker, headlines) 
+            for ticker, headlines in payload.items()
+        }
+        results = await asyncio.gather(*tasks.values())
+        return dict(zip(tasks.keys(), results))
 
+    try:
+        logging.info(f"Analyzing news for {len(payload)} tickers concurrently...")
+        # Run the async functions from our synchronous Flask endpoint
+        final_results = asyncio.run(run_concurrent_analysis())
+        logging.info("Successfully generated batch news analysis.")
+        return jsonify(final_results), 200
     except Exception as e:
-        logging.error(f"Error during batch news analysis LLM call: {e}", exc_info=True)
+        logging.error(f"Error during batch news analysis: {e}", exc_info=True)
         return jsonify({"error": str(e), "message": "Failed to perform batch news analysis."}), 500
 
 if __name__ == '__main__':
