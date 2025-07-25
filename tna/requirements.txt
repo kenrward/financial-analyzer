@@ -1,6 +1,5 @@
-flask
-gunicorn
-requests
+fastapi
+uvicorn[standard]
 langchain-core
 langchain-ollama
 pydantic
