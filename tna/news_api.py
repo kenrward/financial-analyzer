@@ -21,6 +21,11 @@ OLLAMA_MODEL = "llama3.1"
 # --- Setup Logging ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# --- ✅ V3: Concurrency Limiter for Ollama ---
+# This will ensure we don't send more than 5 concurrent requests to the LLM.
+# This prevents overwhelming the model and causing timeouts.
+OLLAMA_SEMAPHORE = asyncio.Semaphore(5)
+
 # --- Pydantic Models for Structured Output ---
 class NewsAnalysis(BaseModel):
     sentiment_score: float = Field(description="A score from -1.0 (very bearish) to 1.0 (very bullish).")
@@ -44,20 +49,23 @@ except Exception as e:
 
 # --- Asynchronous worker function for a single ticker ---
 async def analyze_single_ticker(ticker: str, headlines: List[str]):
-    """Analyzes news for one ticker and returns the result."""
+    """Analyzes news for one ticker, respecting the semaphore."""
     if not chain:
         return {"error": "LLM chain not available"}
     
     headlines_text = "\n".join(f"- {h}" for h in headlines)
-    try:
-        analysis_result = await chain.ainvoke({
-            "headlines": headlines_text,
-            "format_instructions": parser.get_format_instructions()
-        })
-        return analysis_result
-    except Exception as e:
-        logging.error(f"LLM call failed for ticker {ticker}: {e}")
-        return {"error": f"LLM analysis failed for {ticker}"}
+    
+    # Acquire the semaphore before making the LLM call
+    async with OLLAMA_SEMAPHORE:
+        try:
+            analysis_result = await chain.ainvoke({
+                "headlines": headlines_text,
+                "format_instructions": parser.get_format_instructions()
+            })
+            return analysis_result
+        except Exception as e:
+            logging.error(f"LLM call failed for ticker {ticker}: {e}")
+            return {"error": f"LLM analysis failed for {ticker}"}
 
 # --- API Endpoints ---
 @app.get("/health")
@@ -68,10 +76,10 @@ async def health_check():
 async def analyze_news_batch(payload: Dict[str, List[str]]):
     """
     Receives a batch of news, runs analysis for each ticker concurrently,
-    and returns the aggregated results. This is now a native async endpoint.
+    and returns the aggregated results.
     """
     if not payload:
-        raise HTTPException(status_code=400, detail="Invalid request payload. Requires a JSON object mapping tickers to headline lists.")
+        raise HTTPException(status_code=400, detail="Invalid request payload.")
 
     try:
         logging.info(f"Analyzing news for {len(payload)} tickers concurrently...")
