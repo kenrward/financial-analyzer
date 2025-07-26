@@ -6,8 +6,6 @@ import logging
 import os
 import random
 import httpx
-from langchain.tools import StructuredTool
-from pydantic import BaseModel, Field
 from typing import List
 
 log = logging.getLogger(__name__)
@@ -19,11 +17,12 @@ async_client = httpx.AsyncClient(verify=False, timeout=120)
 DATA_API_BASE_URL = "https://tda.kewar.org"
 TA_API_BASE_URL = "https://tta.kewar.org"
 OPTIONS_API_BASE_URL = "https://toa.kewar.org"
-NEWS_API_BASE_URL = "https://tna.kewar.org" # ✅ V3: URL for the new news service
+NEWS_API_BASE_URL = "https://tna.kewar.org" # URL for the new news service
 ANALYSIS_SEMAPHORE = asyncio.Semaphore(8)
 
 # --- Helper Functions ---
 async def _make_request(url: str, json_payload: dict = None, params: dict = None):
+    """The actual request-making logic."""
     try:
         if json_payload:
             response = await async_client.post(url, json=json_payload, timeout=120)
@@ -36,6 +35,7 @@ async def _make_request(url: str, json_payload: dict = None, params: dict = None
         return {"error": "Request Failed", "message": str(e)}
 
 async def _get_data(url: str, json_payload: dict = None, params: dict = None):
+    """Generic data fetching helper that respects the semaphore for our backend services."""
     if "kewar.org" in url:
         async with ANALYSIS_SEMAPHORE:
             return await _make_request(url, json_payload, params)
@@ -43,6 +43,7 @@ async def _get_data(url: str, json_payload: dict = None, params: dict = None):
         return await _make_request(url, json_payload, params)
 
 async def _get_prices_for_tickers(tickers: list):
+    """Uses the Unified Snapshot to get the last price for a list of tickers."""
     ticker_str = ",".join(tickers)
     url = f"https://api.polygon.io/v3/snapshot?ticker.any_of={ticker_str}"
     params = {"apiKey": os.getenv("POLYGON_API_KEY")}
@@ -68,6 +69,8 @@ async def analyze_specific_tickers(tickers_to_analyze: List[str]) -> str:
             _get_data(f"{TA_API_BASE_URL}/analyze", json_payload={"ticker": ticker}),
             _get_data(f"{DATA_API_BASE_URL}/options-chain/{ticker}"),
             _get_data(f"{DATA_API_BASE_URL}/news/{ticker}"),
+            _get_data(f"{DATA_API_BASE_URL}/dividends/{ticker}"),
+            _get_data(f"{DATA_API_BASE_URL}/earnings-calendar/{ticker}"),
         ) for ticker in tickers_to_analyze
     }
     
@@ -78,7 +81,7 @@ async def analyze_specific_tickers(tickers_to_analyze: List[str]) -> str:
     # ✅ 3. V3: Prepare and send news for BATCH analysis
     news_batch_payload = {}
     for ticker, res in results_map.items():
-        _, _, news_data = res
+        _, _, news_data, _, _ = res # res is a tuple of results
         if isinstance(news_data, dict) and "news" in news_data:
             # Extract just the headline text
             news_batch_payload[ticker] = [article['title'] for article in news_data['news']]
@@ -89,7 +92,7 @@ async def analyze_specific_tickers(tickers_to_analyze: List[str]) -> str:
     # 4. Assemble the final report
     final_report = []
     for ticker, res in results_map.items():
-        tech_analysis, options_chain, _ = res # We no longer need the raw news here
+        tech_analysis, options_chain, _, dividends, earnings = res # We no longer need the raw news here
         stock_price = price_lookup.get(ticker)
         
         volatility_analysis = {}
@@ -107,6 +110,7 @@ async def analyze_specific_tickers(tickers_to_analyze: List[str]) -> str:
             "ticker": ticker, "price": stock_price,
             # ✅ V3: Use the new, analyzed news object
             "news_analysis": analyzed_news.get(ticker, {"error": "News analysis failed or was not available."}),
+            "dividends": dividends, "earnings": earnings,
             "technical_analysis": tech_analysis,
             "volatility_analysis": volatility_analysis,
             "market_context": {"vix_rank": vix_context.get("52_week_rank_percent")}
