@@ -17,7 +17,7 @@ async_client = httpx.AsyncClient(verify=False, timeout=120)
 DATA_API_BASE_URL = "https://tda.kewar.org"
 TA_API_BASE_URL = "https://tta.kewar.org"
 OPTIONS_API_BASE_URL = "https://toa.kewar.org"
-NEWS_API_BASE_URL = "https://tna.kewar.org" # URL for the new news service
+NEWS_API_BASE_URL = "https://tna.kewar.org"
 ANALYSIS_SEMAPHORE = asyncio.Semaphore(8)
 
 # --- Helper Functions ---
@@ -78,21 +78,28 @@ async def analyze_specific_tickers(tickers_to_analyze: List[str]) -> str:
     results_map = dict(zip(initial_data_tasks.keys(), all_results))
     vix_context = await _get_data(f"{TA_API_BASE_URL}/analyze-index/I:VIX")
     
-    # ✅ 3. V3: Prepare and send news for BATCH analysis
+    # ✅ 3. V3: Prepare and send news for BATCH analysis in smaller chunks
     news_batch_payload = {}
     for ticker, res in results_map.items():
-        _, _, news_data, _, _ = res # res is a tuple of results
+        _, _, news_data, _, _ = res
         if isinstance(news_data, dict) and "news" in news_data:
-            # Extract just the headline text
             news_batch_payload[ticker] = [article['title'] for article in news_data['news']]
 
-    log.info(f"Sending news for {len(news_batch_payload)} tickers to batch analysis service...")
-    analyzed_news = await _get_data(f"{NEWS_API_BASE_URL}/analyze-news-batch", json_payload=news_batch_payload)
+    analyzed_news = {}
+    CHUNK_SIZE = 10 # Process 10 stocks at a time
+    ticker_chunks = [list(news_batch_payload.keys())[i:i + CHUNK_SIZE] for i in range(0, len(news_batch_payload), CHUNK_SIZE)]
+
+    for chunk in ticker_chunks:
+        log.info(f"Sending news chunk of {len(chunk)} tickers to batch analysis service...")
+        chunk_payload = {ticker: news_batch_payload[ticker] for ticker in chunk}
+        chunk_result = await _get_data(f"{NEWS_API_BASE_URL}/analyze-news-batch", json_payload=chunk_payload)
+        if isinstance(chunk_result, dict):
+            analyzed_news.update(chunk_result)
     
     # 4. Assemble the final report
     final_report = []
     for ticker, res in results_map.items():
-        tech_analysis, options_chain, _, dividends, earnings = res # We no longer need the raw news here
+        tech_analysis, options_chain, _, dividends, earnings = res
         stock_price = price_lookup.get(ticker)
         
         volatility_analysis = {}
@@ -108,7 +115,6 @@ async def analyze_specific_tickers(tickers_to_analyze: List[str]) -> str:
 
         final_report.append({
             "ticker": ticker, "price": stock_price,
-            # ✅ V3: Use the new, analyzed news object
             "news_analysis": analyzed_news.get(ticker, {"error": "News analysis failed or was not available."}),
             "dividends": dividends, "earnings": earnings,
             "technical_analysis": tech_analysis,
