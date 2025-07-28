@@ -152,6 +152,8 @@ async def analyze_specific_tickers(tickers_to_analyze: List[str]) -> str:
     
     # 2. Get VIX context once for the entire run
     vix_context = await _get_data(f"{TA_API_BASE_URL}/analyze-index/I:VIX")
+    assert isinstance(vix_context, dict), "VIX context is not a dict!"
+    log.debug(f"✅ VIX context received: {vix_context}")
 
     # 3. Create and run the full analysis pipeline for all tickers concurrently
     analysis_tasks = [
