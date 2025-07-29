@@ -10,7 +10,6 @@ from datetime import date, timedelta
 app = Flask(__name__)
 
 # --- Configuration ---
-# The root directory for our new monthly Parquet files
 DATA_PATH = "/mnt/shared-drive/us_stocks_daily_by_month"
 
 # --- Setup Logging ---
@@ -20,12 +19,11 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # --- Helper function to read from the new monthly partitioned data ---
 def get_data_from_local_store(ticker: str):
     """
-    Reads the last 13 months of data for a specific ticker from the
+    Reads the last 15 months of data for a specific ticker from the
     monthly partitioned Parquet store.
     """
-    logging.info(f"Reading last 13 months of data for ticker '{ticker}' from: {DATA_PATH}")
+    logging.info(f"Reading last 15 months of data for ticker '{ticker}' from: {DATA_PATH}")
     
-    # Create a list of all monthly dataframes to load
     dfs_to_load = []
     
     # Loop through the last 15 months to ensure we have at least one full year of data
@@ -38,7 +36,6 @@ def get_data_from_local_store(ticker: str):
         
         if os.path.exists(file_path):
             try:
-                # Use filters for an efficient read of only the relevant ticker data
                 monthly_df = pd.read_parquet(file_path, filters=[('ticker', '==', ticker)])
                 if not monthly_df.empty:
                     dfs_to_load.append(monthly_df)
@@ -49,7 +46,6 @@ def get_data_from_local_store(ticker: str):
         logging.warning(f"No monthly data files found containing ticker '{ticker}'.")
         return None
         
-    # Concatenate all monthly dataframes into a single one
     df = pd.concat(dfs_to_load).drop_duplicates(subset=['date', 'ticker'])
     
     if df.empty:
@@ -58,7 +54,6 @@ def get_data_from_local_store(ticker: str):
         
     logging.info(f"Found {len(df)} total records for '{ticker}'.")
     
-    # Process the final dataframe
     df['date'] = pd.to_datetime(df['date'])
     return df.set_index('date').sort_index()
 
@@ -112,10 +107,6 @@ def analyze_stock_data():
 @app.route('/analyze-index/<index_symbol>', methods=['GET'])
 def analyze_index(index_symbol):
     """Analyzes an index's current price relative to its 52-week range."""
-    # yfinance uses '^VIX', but we will store it as 'VIX' for simplicity in paths/filters
-    # We will need to update the downloader to store it as 'VIX'
-    # For now, let's assume it's stored as '^VIX'
-    
     df = get_data_from_local_store(index_symbol)
     
     if df is None or len(df) < 252:
