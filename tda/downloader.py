@@ -108,7 +108,7 @@ if __name__ == "__main__":
         # Once backfilled, you can change the start_date for daily updates.
         indices_to_download = ['I:VIX']
         end = date.today()
-        start = end - timedelta(days=365 * 3) # Backfill 3 years of VIX data
+        start = end - timedelta(days=365 * 1) # Backfill 1 year of VIX data
         
         download_and_store_indices(
             polygon_client,
