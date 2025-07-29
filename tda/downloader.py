@@ -119,10 +119,10 @@ if __name__ == "__main__":
     indices_to_download = ['^VIX'] 
     end = date.today()
     # For daily updates, you only need a few days to catch up
-    # start = end - timedelta(days=5) 
+    start = end - timedelta(days=5) 
     
     # For the initial backfill, use a wider date range
-    start = end - timedelta(days=365 * 3) # Backfill 3 years of VIX data
+    #  start = end - timedelta(days=365 * 3) # Backfill 3 years of VIX data
     
     download_and_store_indices_yfinance(
         indices_to_download,
