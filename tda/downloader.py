@@ -3,10 +3,11 @@ import os
 import pandas as pd
 from datetime import date, timedelta
 import logging
-from polygon import RESTClient # Import the RESTClient for API calls
+import yfinance as yf # Import the yfinance library for index data
 
 # --- Configuration ---
-API_KEY = os.getenv("POLYGON_API_KEY")
+# API_KEY is no longer needed for this script if you only download indices via yfinance
+# API_KEY = os.getenv("POLYGON_API_KEY") 
 FLAT_FILE_ROOT_PATH = "/mnt/shared-drive/polygon_data/us_stocks_sip/day_aggs_v1"
 MASTER_PARQUET_ROOT = "/mnt/shared-drive/us_stocks_daily_by_month"
 
@@ -51,70 +52,80 @@ def process_daily_flat_file(target_date: date):
     except Exception as e:
         logging.error(f"Failed to process stock flat file for {date_str}. Error: {e}", exc_info=True)
 
-# --- ✅ V3: New function to download index data via API ---
-def download_and_store_indices(client: RESTClient, tickers: list, start_date: str, end_date: str):
+# --- ✅ V3: Updated function to download index data via yfinance ---
+def download_and_store_indices_yfinance(tickers: list, start_date: str, end_date: str):
     """
-    Downloads historical daily data for a list of indices via the API
-    and appends it to the partitioned Parquet store.
+    Downloads historical daily data for a list of indices via yfinance
+    and merges it into the partitioned Parquet store.
     """
-    logging.info(f"Starting API download for indices: {tickers} from {start_date} to {end_date}...")
+    logging.info(f"Starting yfinance download for indices: {tickers} from {start_date} to {end_date}...")
 
-    for ticker in tickers:
-        try:
-            logging.info(f"Fetching API data for index: {ticker}...")
-            aggs = client.list_aggs(ticker, 1, "day", start_date, end_date, limit=50000)
+    try:
+        # Download all requested index data in one call
+        df = yf.download(tickers, start=start_date, end=end_date, group_by='ticker')
+        
+        if df.empty:
+            logging.warning(f"No data returned from yfinance for tickers: {tickers}")
+            return
+
+        all_data = []
+        for ticker in tickers:
+            if ticker in df.columns:
+                symbol_df = df[ticker].copy()
+                symbol_df.dropna(inplace=True)
+                symbol_df['ticker'] = ticker
+                all_data.append(symbol_df)
+
+        if not all_data:
+            logging.warning("No valid dataframes to process after download.")
+            return
             
-            all_aggs_data = [{
-                'ticker': ticker,
-                'date': date.fromtimestamp(a.timestamp / 1000),
-                'open': a.open, 'high': a.high, 'low': a.low,
-                'close': a.close, 'volume': a.volume
-            } for a in aggs]
+        final_df = pd.concat(all_data)
+        final_df.reset_index(inplace=True)
+        final_df.rename(columns={'Date': 'date', 'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close', 'Volume': 'volume'}, inplace=True)
+        final_df['date'] = pd.to_datetime(final_df['date']).dt.date
+        final_df['year'] = pd.to_datetime(final_df['date']).dt.year
+        final_df['month'] = pd.to_datetime(final_df['date']).dt.month
+        
+        logging.info(f"Downloaded {len(final_df)} total index records. Merging into Parquet store...")
 
-            if not all_aggs_data:
-                logging.warning(f"No API data found for index {ticker}.")
-                continue
+        # Group data by month to process one monthly file at a time
+        for (year, month), group in final_df.groupby(['year', 'month']):
+            month_dir = os.path.join(MASTER_PARQUET_ROOT, str(year))
+            os.makedirs(month_dir, exist_ok=True)
+            month_parquet_path = os.path.join(month_dir, f"{str(month).zfill(2)}.parquet")
 
-            df = pd.DataFrame(all_aggs_data)
-            df['year'] = pd.to_datetime(df['date']).dt.year
-            df['month'] = pd.to_datetime(df['date']).dt.month
-            
-            logging.info(f"Downloaded {len(df)} records for {ticker}. Saving to Parquet store...")
+            if os.path.exists(month_parquet_path):
+                existing_df = pd.read_parquet(month_parquet_path)
+                combined_df = pd.concat([existing_df, group]).drop_duplicates(subset=['date', 'ticker'], keep='last')
+                combined_df.to_parquet(month_parquet_path, engine='pyarrow', compression='snappy', index=False)
+                logging.info(f"Merged index data into {month_parquet_path}")
+            else:
+                group.to_parquet(month_parquet_path, engine='pyarrow', compression='snappy', index=False)
+                logging.info(f"Created new monthly file for indices: {month_parquet_path}")
 
-            df.to_parquet(
-                MASTER_PARQUET_ROOT,
-                engine='pyarrow', compression='snappy', index=False,
-                partition_cols=['year', 'month'],
-                existing_data_behavior='delete_matching'
-            )
-            logging.info(f"Successfully saved API data for {ticker}.")
+        logging.info(f"Successfully saved all index data.")
 
-        except Exception as e:
-            logging.error(f"Could not fetch or process API data for index {ticker}. Error: {e}")
+    except Exception as e:
+        logging.error(f"Could not fetch or process index data from yfinance. Error: {e}")
 
 if __name__ == "__main__":
-    # --- Instructions for Use ---
-    
-    # For a daily cron job, you would process the previous day for stocks
-    # and also update the indices for the last few days.
+    # For a daily cron job, you would process the previous day's stock flat file
     previous_day = date.today() - timedelta(days=1)
     process_daily_flat_file(previous_day)
 
-    # Initialize the Polygon client for API calls
-    if API_KEY:
-        polygon_client = RESTClient(API_KEY)
-        
-        # For the initial backfill of index data, run this section.
-        # Once backfilled, you can change the start_date for daily updates.
-        indices_to_download = ['I:VIX']
-        end = date.today()
-        start = end - timedelta(days=365 * 1) # Backfill 1 year of VIX data
-        
-        download_and_store_indices(
-            polygon_client,
-            indices_to_download,
-            start.strftime('%Y-%m-%d'),
-            end.strftime('%Y-%m-%d')
-        )
-    else:
-        logging.warning("POLYGON_API_KEY not found, skipping index download.")
+    # Then, update the indices for the last few days using yfinance
+    # The ticker for VIX in yfinance is '^VIX'
+    indices_to_download = ['^VIX'] 
+    end = date.today()
+    # For daily updates, you only need a few days to catch up
+    # start = end - timedelta(days=5) 
+    
+    # For the initial backfill, use a wider date range
+    start = end - timedelta(days=365 * 3) # Backfill 3 years of VIX data
+    
+    download_and_store_indices_yfinance(
+        indices_to_download,
+        start.strftime('%Y-%m-%d'),
+        end.strftime('%Y-%m-%d')
+    )
