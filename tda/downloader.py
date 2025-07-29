@@ -77,8 +77,8 @@ if __name__ == "__main__":
     # you can uncomment and run this loop.
     # IMPORTANT: You should delete your old, single Parquet file before running this.
     
-    logging.info("Starting initial backfill for the last 3 years...")
-    for i in range(1, 365 * 3):
-        target_day = date.today() - timedelta(days=i)
-        process_daily_flat_file(target_day)
-    logging.info("Initial backfill complete.")
+    # logging.info("Starting initial backfill for the last 3 years...")
+    # for i in range(1, 365 * 3):
+    #     target_day = date.today() - timedelta(days=i)
+    #     process_daily_flat_file(target_day)
+    # logging.info("Initial backfill complete.")
