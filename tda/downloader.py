@@ -6,8 +6,8 @@ import logging
 
 # --- Configuration ---
 FLAT_FILE_ROOT_PATH = "/mnt/shared-drive/polygon_data/us_stocks_sip/day_aggs_v1"
-# The new root directory for our partitioned database
-MASTER_PARQUET_ROOT = "/mnt/shared-drive/us_stocks_daily_partitioned"
+# The new root directory for our monthly Parquet files
+MASTER_PARQUET_ROOT = "/mnt/shared-drive/us_stocks_daily_by_month"
 
 # --- Setup Logging ---
 logging.basicConfig(
@@ -21,42 +21,41 @@ logging.basicConfig(
 
 def process_daily_flat_file(target_date: date):
     """
-    Reads a daily Polygon.io flat file, processes it, and saves it to a
-    partitioned Parquet data store.
+    Reads a daily Polygon.io flat file and appends its data to the correct
+    monthly Parquet file in a YYYY/MM.parquet structure.
     """
     year = target_date.strftime('%Y')
     month = target_date.strftime('%m')
     date_str = target_date.strftime('%Y-%m-%d')
     
-    file_path = os.path.join(FLAT_FILE_ROOT_PATH, year, month, f"{date_str}.csv.gz")
+    # Construct the path to the source gzipped CSV file
+    source_file_path = os.path.join(FLAT_FILE_ROOT_PATH, year, month, f"{date_str}.csv.gz")
     
-    logging.info(f"Processing file: {file_path}")
+    logging.info(f"Processing file: {source_file_path}")
 
     try:
-        df = pd.read_csv(file_path, compression='gzip')
-        logging.info(f"Successfully read {len(df)} records from {file_path}.")
+        df = pd.read_csv(source_file_path, compression='gzip')
+        logging.info(f"Successfully read {len(df)} records from {source_file_path}.")
         
         # --- Data Cleaning & Formatting ---
         df['date'] = pd.to_datetime(df['window_start'], unit='ns').dt.date
         df.rename(columns={'from': 'ticker'}, inplace=True)
-        
-        # Add year and month columns for partitioning
-        df['year'] = pd.to_datetime(df['date']).dt.year
-        df['month'] = pd.to_datetime(df['date']).dt.month
+        final_df = df[['date', 'ticker', 'open', 'high', 'low', 'close', 'volume']]
 
-        final_df = df[['date', 'year', 'month', 'ticker', 'open', 'high', 'low', 'close', 'volume']]
+        # --- Store the data in the correct monthly file ---
+        month_dir = os.path.join(MASTER_PARQUET_ROOT, year)
+        os.makedirs(month_dir, exist_ok=True)
+        month_parquet_path = os.path.join(month_dir, f"{month}.parquet")
 
-        # --- Store the data using partitioning ---
-        # This is much more efficient than reading/writing one giant file.
-        # It will create the year=/month= subdirectories automatically.
-        final_df.to_parquet(
-            MASTER_PARQUET_ROOT,
-            engine='pyarrow',
-            compression='snappy',
-            index=False,
-            partition_cols=['year', 'month'],
-            existing_data_behavior='delete_matching' # Overwrites partitions for the same year/month
-        )
+        if os.path.exists(month_parquet_path):
+            logging.info(f"Appending data to existing monthly file: {month_parquet_path}")
+            existing_df = pd.read_parquet(month_parquet_path)
+            # Combine, remove duplicates for the specific day, and save
+            combined_df = pd.concat([existing_df[existing_df['date'] != pd.to_datetime(target_date).date()], final_df])
+            combined_df.to_parquet(month_parquet_path, engine='pyarrow', compression='snappy', index=False)
+        else:
+            logging.info(f"Creating new monthly file: {month_parquet_path}")
+            final_df.to_parquet(month_parquet_path, engine='pyarrow', compression='snappy', index=False)
             
         logging.info(f"Successfully processed and saved data for {date_str}.")
 
@@ -68,17 +67,17 @@ def process_daily_flat_file(target_date: date):
 
 if __name__ == "__main__":
     # --- Instructions for Use ---
-    
-    # For a daily cron job, you should process the previous day
-    previous_day = date.today() - timedelta(days=1)
-    process_daily_flat_file(previous_day)
+
+    # To run a daily update for the previous day (for a cron job), use this:
+    # previous_day = date.today() - timedelta(days=1)
+    # process_daily_flat_file(previous_day)
 
     # To build your database initially for the last 3 years,
     # you can uncomment and run this loop.
-    # IMPORTANT: You should delete your old, single Parquet file before running this.
+    # IMPORTANT: You should delete your old data directory before running this.
     
-    # logging.info("Starting initial backfill for the last 3 years...")
-    # for i in range(1, 365 * 3):
-    #     target_day = date.today() - timedelta(days=i)
-    #     process_daily_flat_file(target_day)
-    # logging.info("Initial backfill complete.")
+    logging.info("Starting initial backfill for the last 3 years...")
+    for i in range(1, 365 * 3):
+        target_day = date.today() - timedelta(days=i)
+        process_daily_flat_file(target_day)
+    logging.info("Initial backfill complete.")
