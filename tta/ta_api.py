@@ -5,46 +5,63 @@ import numpy as np
 import ta 
 from flask import Flask, jsonify, request
 import logging
+from datetime import date, timedelta
 
 app = Flask(__name__)
 
 # --- Configuration ---
-# ✅ V3: Updated path to the ROOT of the partitioned database
-DATA_PATH = "/mnt/shared-drive/us_stocks_daily_partitioned"
+# The root directory for our new monthly Parquet files
+DATA_PATH = "/mnt/shared-drive/us_stocks_daily_by_month"
 
 # --- Setup Logging ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
-# --- Helper function with efficient data filtering from partitioned data ---
+# --- Helper function to read from the new monthly partitioned data ---
 def get_data_from_local_store(ticker: str):
     """
-    Reads data for a specific ticker from the partitioned Parquet store.
-    Pandas will automatically handle the partitioned directory structure.
+    Reads the last 13 months of data for a specific ticker from the
+    monthly partitioned Parquet store.
     """
-    try:
-        logging.info(f"Reading data for ticker '{ticker}' from partitioned store: {DATA_PATH}")
+    logging.info(f"Reading last 13 months of data for ticker '{ticker}' from: {DATA_PATH}")
+    
+    # Create a list of all monthly dataframes to load
+    dfs_to_load = []
+    
+    # Loop through the last 13 months to ensure we have at least one full year of data
+    for i in range(14):
+        target_date = date.today() - timedelta(days=i * 30)
+        year = target_date.strftime('%Y')
+        month = target_date.strftime('%m')
         
-        # The 'filters' argument is highly efficient with partitioned datasets.
-        # It will only read the data from partitions that could contain the ticker.
-        ticker_df = pd.read_parquet(DATA_PATH, filters=[('ticker', '==', ticker)])
-
-        if ticker_df.empty:
-            logging.warning(f"No data found for ticker '{ticker}' after filtering.")
-            return None
-            
-        logging.info(f"Found {len(ticker_df)} records for '{ticker}'.")
+        file_path = os.path.join(DATA_PATH, year, f"{month}.parquet")
         
-        # Process the filtered dataframe
-        ticker_df['date'] = pd.to_datetime(ticker_df['date'])
-        return ticker_df.set_index('date').sort_index()
+        if os.path.exists(file_path):
+            try:
+                # Use filters for an efficient read of only the relevant ticker data
+                monthly_df = pd.read_parquet(file_path, filters=[('ticker', '==', ticker)])
+                if not monthly_df.empty:
+                    dfs_to_load.append(monthly_df)
+            except Exception as e:
+                logging.warning(f"Could not read or filter file {file_path} for ticker {ticker}. Error: {e}")
 
-    except FileNotFoundError:
-        logging.error(f"FATAL: Master data directory not found at {DATA_PATH}")
+    if not dfs_to_load:
+        logging.warning(f"No monthly data files found containing ticker '{ticker}'.")
         return None
-    except Exception as e:
-        logging.error(f"Failed to read or process local data file for {ticker}: {e}")
+        
+    # Concatenate all monthly dataframes into a single one
+    df = pd.concat(dfs_to_load).drop_duplicates(subset=['date', 'ticker'])
+    
+    if df.empty:
+        logging.warning(f"No data found for ticker '{ticker}' after filtering and concatenation.")
         return None
+        
+    logging.info(f"Found {len(df)} total records for '{ticker}'.")
+    
+    # Process the final dataframe
+    df['date'] = pd.to_datetime(df['date'])
+    return df.set_index('date').sort_index()
+
 
 # --- API Endpoints ---
 @app.route('/health', methods=['GET'])

@@ -69,15 +69,15 @@ if __name__ == "__main__":
     # --- Instructions for Use ---
 
     # To run a daily update for the previous day (for a cron job), use this:
-    # previous_day = date.today() - timedelta(days=1)
-    # process_daily_flat_file(previous_day)
+    previous_day = date.today() - timedelta(days=1)
+    process_daily_flat_file(previous_day)
 
     # To build your database initially for the last 3 years,
     # you can uncomment and run this loop.
     # IMPORTANT: You should delete your old data directory before running this.
     
-    logging.info("Starting initial backfill for the last 3 years...")
-    for i in range(1, 365 * 3):
-        target_day = date.today() - timedelta(days=i)
-        process_daily_flat_file(target_day)
-    logging.info("Initial backfill complete.")
+    # logging.info("Starting initial backfill for the last 3 years...")
+    # for i in range(1, 365 * 3):
+    #     target_day = date.today() - timedelta(days=i)
+    #     process_daily_flat_file(target_day)
+    # logging.info("Initial backfill complete.")
