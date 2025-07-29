@@ -9,24 +9,24 @@ import logging
 app = Flask(__name__)
 
 # --- Configuration ---
-# The path to your local historical data file on the shared drive
-DATA_PATH = "/mnt/shared-drive/us_stocks_daily.parquet"
+# ✅ V3: Updated path to the ROOT of the partitioned database
+DATA_PATH = "/mnt/shared-drive/us_stocks_daily_partitioned"
 
 # --- Setup Logging ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
-# --- Helper function with efficient data filtering ---
+# --- Helper function with efficient data filtering from partitioned data ---
 def get_data_from_local_store(ticker: str):
     """
-    Reads only the necessary rows for a specific ticker from the Parquet store
-    using predicate pushdown filtering.
+    Reads data for a specific ticker from the partitioned Parquet store.
+    Pandas will automatically handle the partitioned directory structure.
     """
     try:
-        logging.info(f"Reading data for ticker '{ticker}' from: {DATA_PATH}")
+        logging.info(f"Reading data for ticker '{ticker}' from partitioned store: {DATA_PATH}")
         
-        # Use the 'filters' argument to read only the rows where the 'ticker' column matches.
-        # This is extremely memory-efficient.
+        # The 'filters' argument is highly efficient with partitioned datasets.
+        # It will only read the data from partitions that could contain the ticker.
         ticker_df = pd.read_parquet(DATA_PATH, filters=[('ticker', '==', ticker)])
 
         if ticker_df.empty:
@@ -40,7 +40,7 @@ def get_data_from_local_store(ticker: str):
         return ticker_df.set_index('date').sort_index()
 
     except FileNotFoundError:
-        logging.error(f"FATAL: Master data file not found at {DATA_PATH}")
+        logging.error(f"FATAL: Master data directory not found at {DATA_PATH}")
         return None
     except Exception as e:
         logging.error(f"Failed to read or process local data file for {ticker}: {e}")
@@ -65,7 +65,6 @@ def analyze_stock_data():
 
     df = get_data_from_local_store(ticker)
 
-    # Return a specific message with a 200 OK status if data is insufficient
     if df is None or len(df) < 252:
         return jsonify({
             "ticker": ticker,
@@ -75,20 +74,13 @@ def analyze_stock_data():
     analysis_results = {"ticker": ticker, "patterns": [], "indicators": {}}
 
     try:
-        # Add the last closing price to the results
         analysis_results['indicators']['last_close'] = df['close'].iloc[-1]
-        
-        # Standard Indicators
         analysis_results['indicators']['RSI'] = round(ta.momentum.rsi(df['close'], window=14).iloc[-1], 2)
         macd_indicator = ta.trend.MACD(df['close'], window_fast=12, window_slow=26, window_sign=9)
         analysis_results['indicators']['MACD'] = round(macd_indicator.macd().iloc[-1], 2)
-        
-        # Volatility Indicators
         bb_indicator = ta.volatility.BollingerBands(df['close'], window=20, window_dev=2)
         analysis_results['indicators']['BB_High'] = round(bb_indicator.bollinger_hband().iloc[-1], 2)
         analysis_results['indicators']['BB_Low'] = round(bb_indicator.bollinger_lband().iloc[-1], 2)
-
-        # Historical Volatility (HV)
         log_returns = np.log(df['close'] / df['close'].shift(1))
         hv_30d = log_returns.rolling(window=30).std() * np.sqrt(252)
         analysis_results['indicators']['HV_30D_Annualized'] = round(hv_30d.iloc[-1] * 100, 2)
@@ -105,7 +97,6 @@ def analyze_index(index_symbol):
     """Analyzes an index's current price relative to its 52-week range."""
     df = get_data_from_local_store(index_symbol)
     
-    # Return a specific message with a 200 OK status if data is insufficient
     if df is None or len(df) < 252:
         return jsonify({
             "symbol": index_symbol,
