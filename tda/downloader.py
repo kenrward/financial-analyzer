@@ -77,7 +77,7 @@ if __name__ == "__main__":
     # IMPORTANT: You should delete your old data directory before running this.
     
     logging.info("Starting initial backfill for the last 3 years...")
-    for i in range(1, 365 * 4):
-        target_day = date.today(1095) - timedelta(days=i)
+    for i in range(1095, 365 * 4):
+        target_day = date.today() - timedelta(days=i)
         process_daily_flat_file(target_day)
     logging.info("Initial backfill complete.")
