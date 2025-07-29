@@ -28,8 +28,8 @@ def get_data_from_local_store(ticker: str):
     # Create a list of all monthly dataframes to load
     dfs_to_load = []
     
-    # Loop through the last 13 months to ensure we have at least one full year of data
-    for i in range(15):
+    # Loop through the last 14 months to ensure we have at least one full year of data
+    for i in range(14):
         target_date = date.today() - timedelta(days=i * 30)
         year = target_date.strftime('%Y')
         month = target_date.strftime('%m')
@@ -112,6 +112,10 @@ def analyze_stock_data():
 @app.route('/analyze-index/<index_symbol>', methods=['GET'])
 def analyze_index(index_symbol):
     """Analyzes an index's current price relative to its 52-week range."""
+    # yfinance uses '^VIX', but we will store it as 'VIX' for simplicity in paths/filters
+    # We will need to update the downloader to store it as 'VIX'
+    # For now, let's assume it's stored as '^VIX'
+    
     df = get_data_from_local_store(index_symbol)
     
     if df is None or len(df) < 252:
