@@ -29,7 +29,7 @@ def get_data_from_local_store(ticker: str):
     dfs_to_load = []
     
     # Loop through the last 13 months to ensure we have at least one full year of data
-    for i in range(14):
+    for i in range(15):
         target_date = date.today() - timedelta(days=i * 30)
         year = target_date.strftime('%Y')
         month = target_date.strftime('%m')
