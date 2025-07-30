@@ -36,8 +36,8 @@ async def run_trading_analysis_workflow(tickers: list):
         return
     logging.info("STEP 1 Complete. Raw data successfully retrieved.")
 
-    # Step 2: Final Synthesis (Single LLM Call)
-    logging.info("STEP 2: Starting final synthesis of the report...")
+    # Step 2: Iterative Synthesis
+    logging.info("STEP 2: Starting iterative synthesis of the report...")
     try:
         results_list = json.loads(raw_data_json_string)
         if isinstance(results_list, dict) and 'error' in results_list:
@@ -50,39 +50,47 @@ async def run_trading_analysis_workflow(tickers: list):
         logging.error(f"Failed to parse JSON from Step 1: {e}")
         return
 
-    # The single, comprehensive prompt for the final analysis
-    final_prompt = f"""
-    You are a senior options analyst. Your task is to analyze the following JSON data which contains a list of stocks and their associated metrics.
-    The data is: {json.dumps(results_list, indent=2)}
-
-    For each stock in the list, determine an outlook for SELLING OPTIONS PREMIUM. The outlook must be Bullish, Bearish, or Neutral.
-    
-    Your justification for each stock must be brief and synthesized from all its available data, following these rules:
-    - A high "iv_hv_spread_percent" (e.g., > 10) is a strong bullish indicator to sell premium.
-    - A high positive "skew_25_delta" (e.g., > 5) is a strong bullish indicator to sell puts, as it signals fear.
-    - A high "vix_rank" provides a good environment for selling premium in general.
-    - Use the 'raw_news' headlines to infer sentiment.
-    - Mention upcoming earnings or dividend dates if they are soon, as they increase risk.
-    
-    Your entire response must be a single markdown table containing a row for each stock. Do not include any other text, explanations, or notes.
-    Use this exact format for the table:
-    | Ticker | Price | Outlook (for Premium Selling) | Justification |
-    | :--- | :--- | :--- | :--- |
-    """
-    
-    logging.info("Sending comprehensive data package to LLM for final analysis...")
-    response = await llm.ainvoke(final_prompt)
-    final_table = response.content.strip()
-
-    # Print the final table received from the LLM
+    # Prepare for the final report
+    report_header = "| Ticker | Price | Outlook (for Premium Selling) | Justification |\n| :--- | :--- | :--- | :--- |"
+    report_lines = [report_header]
     print("\n\n--- FINAL REPORT ---")
-    print(final_table)
+    print(report_header)
+
+    # ✅ THE FIX: Loop through results and call LLM for each stock individually
+    for stock_data in results_list:
+        # The single, comprehensive prompt for the final analysis
+        final_prompt = f"""
+        You are a senior options analyst. Your task is to analyze the following JSON data for the stock '{stock_data.get('ticker')}' and provide a one-line summary for a markdown table.
+        The data is: {json.dumps(stock_data, indent=2)}
+
+        Determine an outlook for SELLING OPTIONS PREMIUM. The outlook must be Bullish, Bearish, or Neutral.
+        
+        Your justification must be brief and synthesized from all available data, following these rules:
+        - A high "iv_hv_spread_percent" (e.g., > 10) is a strong bullish indicator to sell premium.
+        - A high positive "skew_25_delta" (e.g., > 5) is a strong bullish indicator to sell puts, as it signals fear.
+        - A high "vix_rank" provides a good environment for selling premium in general.
+        - Use the 'raw_news' headlines to infer sentiment.
+        - Mention upcoming earnings or dividend dates if they are soon, as they increase risk.
+        
+        Your entire response must be a single markdown table row for this one stock. Do not include any other text, explanations, or notes.
+        Use this exact format for the table row:
+        | Ticker | Price | Outlook (for Premium Selling) | Justification |
+        """
+        
+        logging.info(f"Synthesizing report for: {stock_data.get('ticker')}")
+        response = await llm.ainvoke(final_prompt)
+        table_row = response.content.strip()
+
+        # Print each row to the console as it's generated
+        print(table_row)
+        report_lines.append(table_row)
 
     # Write the final report to a file
     try:
         report_filename = "stock_report.txt"
+        report_content = "\n".join(report_lines)
         with open(report_filename, "w") as f:
-            f.write(f"Stock Analysis Report - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n{final_table}")
+            f.write(f"Stock Analysis Report - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n{report_content}")
         logging.info(f"Final report saved to {report_filename}")
     except Exception as e:
         logging.error(f"Failed to write final report file: {e}")
