@@ -22,22 +22,22 @@ logging.basicConfig(
 )
 OLLAMA_BASE_URL = "http://localhost:11434"
 OLLAMA_MODEL = "llama3.1" 
-llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL, temperature=0.2)
+llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL, temperature=0.2, request_timeout=300.0)
 
 # --- Main Workflow ---
 async def run_trading_analysis_workflow(tickers: list):
     logging.info(f"🚀 Kicking off V3 workflow for tickers: {tickers}")
 
-    # Step 1: Data Gathering
-    logging.info("STEP 1: Executing data analysis tool...")
+    # Step 1: Data Gathering (No LLM)
+    logging.info("STEP 1: Executing data gathering tool...")
     raw_data_json_string = await analyze_specific_tickers(tickers)
     if not raw_data_json_string:
         logging.error("Tool returned no data.")
         return
-    logging.info("STEP 1 Complete.")
+    logging.info("STEP 1 Complete. Raw data successfully retrieved.")
 
-    # Step 2: Synthesis
-    logging.info("STEP 2: Starting iterative synthesis of the report...")
+    # Step 2: Final Synthesis (Single LLM Call)
+    logging.info("STEP 2: Starting final synthesis of the report...")
     try:
         results_list = json.loads(raw_data_json_string)
         if isinstance(results_list, dict) and 'error' in results_list:
@@ -50,42 +50,39 @@ async def run_trading_analysis_workflow(tickers: list):
         logging.error(f"Failed to parse JSON from Step 1: {e}")
         return
 
-    report_header = "| Ticker | Price | Outlook (for Premium Selling) | Justification |\n| :--- | :--- | :--- | :--- |"
-    report_lines = [report_header]
+    # The single, comprehensive prompt for the final analysis
+    final_prompt = f"""
+    You are a senior options analyst. Your task is to analyze the following JSON data which contains a list of stocks and their associated metrics.
+    The data is: {json.dumps(results_list, indent=2)}
+
+    For each stock in the list, determine an outlook for SELLING OPTIONS PREMIUM. The outlook must be Bullish, Bearish, or Neutral.
+    
+    Your justification for each stock must be brief and synthesized from all its available data, following these rules:
+    - A high "iv_hv_spread_percent" (e.g., > 10) is a strong bullish indicator to sell premium.
+    - A high positive "skew_25_delta" (e.g., > 5) is a strong bullish indicator to sell puts, as it signals fear.
+    - A high "vix_rank" provides a good environment for selling premium in general.
+    - Use the 'raw_news' headlines to infer sentiment.
+    - Mention upcoming earnings or dividend dates if they are soon, as they increase risk.
+    
+    Your entire response must be a single markdown table containing a row for each stock. Do not include any other text, explanations, or notes.
+    Use this exact format for the table:
+    | Ticker | Price | Outlook (for Premium Selling) | Justification |
+    | :--- | :--- | :--- | :--- |
+    """
+    
+    logging.info("Sending comprehensive data package to LLM for final analysis...")
+    response = await llm.ainvoke(final_prompt)
+    final_table = response.content.strip()
+
+    # Print the final table received from the LLM
     print("\n\n--- FINAL REPORT ---")
-    print(report_header)
+    print(final_table)
 
-    for stock_data in results_list:
-        # ✅ --- V3 FINAL PROMPT ---
-        # This prompt is updated to use the new 'news_analysis' object.
-        single_stock_prompt = f"""
-        You are a senior options analyst. Your task is to analyze the following data for a single stock and provide a one-line summary for a markdown table.
-        The data is: {json.dumps(stock_data)}
-
-        Determine an outlook for SELLING OPTIONS PREMIUM. The outlook must be Bullish, Bearish, or Neutral.
-        
-        Your justification must be brief and synthesized from all available data, following these rules:
-        - Use the 'sentiment_score' and 'summary' from the 'news_analysis' object to inform your view.
-        - A high "iv_hv_spread_percent" (e.g., > 10) is a strong bullish indicator to sell premium.
-        - A high positive "skew_25_delta" (e.g., > 5) is a strong bullish indicator to sell puts, as it signals fear.
-        - A high "vix_rank" (e.g., > 50) provides a good environment for selling premium in general.
-        - Check for upcoming earnings or dividend dates and mention them if they are soon, as they increase risk.
-        
-        Your entire response must be a single markdown table row using the exact format:
-        | TICKER | $PRICE | Outlook | Justification |
-        """
-        
-        logging.info(f"Synthesizing report for: {stock_data.get('ticker')}")
-        response = await llm.ainvoke(single_stock_prompt)
-        table_row = response.content.strip().replace("'", "")
-        print(table_row)
-        report_lines.append(table_row)
-
+    # Write the final report to a file
     try:
-        report_content = "\n".join(report_lines)
         report_filename = "stock_report.txt"
         with open(report_filename, "w") as f:
-            f.write(f"Stock Analysis Report - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n{report_content}")
+            f.write(f"Stock Analysis Report - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n{final_table}")
         logging.info(f"Final report saved to {report_filename}")
     except Exception as e:
         logging.error(f"Failed to write final report file: {e}")
