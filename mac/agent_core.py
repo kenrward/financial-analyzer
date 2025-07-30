@@ -11,21 +11,14 @@ from datetime import datetime
 from api_tools import analyze_specific_tickers
 from langchain_ollama import ChatOllama
 
-# --- Setup Logging & LLM ---
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("agent_run.log"),
-        logging.StreamHandler()
-    ]
-)
+# --- LLM Configuration ---
+# Note: Logging is now configured in the main execution block
 OLLAMA_BASE_URL = "http://localhost:11434"
 OLLAMA_MODEL = "llama3.1" 
 llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL, temperature=0.2, request_timeout=300.0)
 
 # --- Main Workflow ---
-async def run_trading_analysis_workflow(tickers: list):
+async def run_trading_analysis_workflow(tickers: list, report_filename: str):
     logging.info(f"🚀 Kicking off V3 workflow for tickers: {tickers}")
 
     # Step 1: Data Gathering (No LLM)
@@ -56,7 +49,7 @@ async def run_trading_analysis_workflow(tickers: list):
     print("\n\n--- FINAL REPORT ---")
     print(report_header)
 
-    # ✅ THE FIX: Loop through results and call LLM for each stock individually
+    # Loop through results and call LLM for each stock individually
     for stock_data in results_list:
         # The single, comprehensive prompt for the final analysis
         final_prompt = f"""
@@ -87,7 +80,6 @@ async def run_trading_analysis_workflow(tickers: list):
 
     # Write the final report to a file
     try:
-        report_filename = "stock_report.txt"
         report_content = "\n".join(report_lines)
         with open(report_filename, "w") as f:
             f.write(f"Stock Analysis Report - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n{report_content}")
@@ -99,6 +91,23 @@ async def run_trading_analysis_workflow(tickers: list):
 
 # --- Main Execution Block ---
 if __name__ == '__main__':
+    # --- Create a timestamp for this specific run ---
+    run_timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    
+    # --- Create dynamic filenames ---
+    log_filename = f"agent_run_{run_timestamp}.log"
+    report_filename = f"stock_report_{run_timestamp}.txt"
+
+    # --- Setup Logging with the dynamic filename ---
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_filename),
+            logging.StreamHandler()
+        ]
+    )
+
     parser = argparse.ArgumentParser(description="LLM-Powered Trading Agent")
     parser.add_argument(
         "--tickers", 
@@ -118,4 +127,4 @@ if __name__ == '__main__':
         exit(1)
         
     logging.info("Agent starting up...")
-    asyncio.run(run_trading_analysis_workflow(tickers=ticker_list))
+    asyncio.run(run_trading_analysis_workflow(tickers=ticker_list, report_filename=report_filename))
