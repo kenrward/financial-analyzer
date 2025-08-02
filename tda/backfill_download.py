@@ -117,18 +117,24 @@ def download_and_store_indices_yfinance(tickers: list, start_date: str, end_date
         logging.error(f"Could not fetch or process index data from yfinance. Error: {e}")
 
 if __name__ == "__main__":
-    # --- Daily Execution Logic ---
-    # This will process the flat file for the previous day
-    previous_day = date.today() - timedelta(days=1)
-    process_daily_flat_file(previous_day)
+    # --- One-Time Backfill ---
+    # This loop will process all daily flat files from the start date until today.
+    logging.info("Starting one-time backfill from 2023-07-17...")
+    start_date = date(2023, 7, 17)
+    end_date = date.today()
+    current_date = start_date
+
+    while current_date <= end_date:
+        process_daily_flat_file(current_date)
+        current_date += timedelta(days=1)
     
-    logging.info("Daily flat file processing complete.")
+    logging.info("Daily flat file backfill complete.")
 
     # --- Index Data Update ---
-    # This will update the index data for the last few days to ensure it's current.
+    # This will still run after the backfill to ensure index data is up-to-date.
     indices_to_download = ['^VIX'] 
     end = date.today()
-    start = end - timedelta(days=5) # Get last 5 days of data to be safe
+    start = end - timedelta(days=365 * 3) # Get 3 years of history
     
     download_and_store_indices_yfinance(
         indices_to_download,
