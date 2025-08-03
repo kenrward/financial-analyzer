@@ -17,6 +17,7 @@ async_client = httpx.AsyncClient(verify=False, timeout=120)
 DATA_API_BASE_URL = "https://tda.kewar.org"
 TA_API_BASE_URL = "https://tta.kewar.org"
 OPTIONS_API_BASE_URL = "https://toa.kewar.org"
+NEWS_API_BASE_URL = "https://tna.kewar.org"
 ANALYSIS_SEMAPHORE = asyncio.Semaphore(8)
 
 # --- Helper Functions ---
@@ -39,7 +40,6 @@ async def _get_data(url: str, json_payload: dict = None, params: dict = None):
         async with ANALYSIS_SEMAPHORE:
             return await _make_request(url, json_payload, params)
     else:
-        # For external APIs like Polygon, we don't use our internal semaphore.
         return await _make_request(url, json_payload, params)
 
 async def _get_prices_for_tickers(tickers: list):
@@ -49,13 +49,12 @@ async def _get_prices_for_tickers(tickers: list):
     params = {"apiKey": os.getenv("POLYGON_API_KEY")}
     return await _get_data(url, params=params)
 
-# --- ✅ V3: New helper function to process a single ticker's full data pipeline ---
-async def _gather_data_for_ticker(ticker: str, price_lookup: dict, vix_context: dict):
+# --- V3: New helper function to process a single ticker's full pipeline ---
+async def _process_single_ticker(ticker: str, price_lookup: dict, vix_context: dict):
     """
-    Orchestrates the entire data gathering pipeline for a single stock.
-    This function does NOT call any LLMs.
+    Orchestrates the entire data gathering and analysis pipeline for a single stock.
     """
-    log.info(f"Gathering data for ticker: {ticker}")
+    log.info(f"Processing ticker: {ticker}")
     
     # 1. Fetch initial data concurrently
     tech_analysis, options_chain, news_data, dividends, earnings = await asyncio.gather(
@@ -65,12 +64,22 @@ async def _gather_data_for_ticker(ticker: str, price_lookup: dict, vix_context: 
         _get_data(f"{DATA_API_BASE_URL}/dividends/{ticker}"),
         _get_data(f"{DATA_API_BASE_URL}/earnings-calendar/{ticker}"),
     )
-    
-    # 2. Analyze volatility (no LLM involved)
+
+    # 2. Analyze news (this now happens in a separate service)
+    news_analysis = {"error": "News data not available."}
+    if isinstance(news_data, dict) and "news" in news_data and news_data["news"]:
+        headlines = [article['title'] for article in news_data['news']]
+        news_payload = {ticker: headlines}
+        # We call the batch endpoint even for a single ticker for consistency
+        analyzed_news_batch = await _get_data(f"{NEWS_API_BASE_URL}/analyze-news-batch", json_payload=news_payload)
+        if analyzed_news_batch and ticker in analyzed_news_batch:
+            news_analysis = analyzed_news_batch[ticker]
+
+    # 3. Analyze volatility
     stock_price = price_lookup.get(ticker)
     volatility_analysis = {}
     if "error" in tech_analysis or "error" in options_chain or stock_price is None:
-        volatility_analysis = {"error": "Missing critical data for volatility analysis."}
+        volatility_analysis = {"error": "Missing critical data (TA or Options Chain) for volatility analysis."}
     else:
         payload = {
             "ticker": ticker, "stock_price": stock_price,
@@ -79,10 +88,10 @@ async def _gather_data_for_ticker(ticker: str, price_lookup: dict, vix_context: 
         }
         volatility_analysis = await _get_data(f"{OPTIONS_API_BASE_URL}/analyze-volatility", json_payload=payload)
 
-    # 3. Assemble and return the final raw data object for this ticker
+    # 4. Assemble and return the final report object for this ticker
     return {
         "ticker": ticker, "price": stock_price,
-        "raw_news": news_data.get("news", []), # Return the raw news list
+        "news_analysis": news_analysis,
         "dividends": dividends, "earnings": earnings,
         "technical_analysis": tech_analysis,
         "volatility_analysis": volatility_analysis,
@@ -91,29 +100,27 @@ async def _gather_data_for_ticker(ticker: str, price_lookup: dict, vix_context: 
 
 # --- The V3 "Super-Tool" ---
 async def analyze_specific_tickers(tickers_to_analyze: List[str]) -> str:
-    """
-    The main data gathering function. It orchestrates all backend API calls
-    to assemble a complete raw data package for the LLM to analyze.
-    """
-    log.info(f"🚀 Kicking off V3 data gathering for {len(tickers_to_analyze)} stocks.")
+    log.info(f"🚀 Kicking off V3 analysis for {len(tickers_to_analyze)} stocks: {tickers_to_analyze}")
     if not tickers_to_analyze:
         return json.dumps({"error": "No tickers provided."})
 
-    # 1. Get prices and VIX context once for the entire run
+    # 1. Get prices for all tickers in one batch
     price_data = await _get_prices_for_tickers(tickers_to_analyze)
     price_lookup = {
         res['ticker']: res.get('session', {}).get('close')
         for res in price_data.get('results', [])
         if res.get('session') and res.get('session').get('close') is not None
     }
-    vix_context = await _get_data(f"{TA_API_BASE_URL}/analyze-index/I:VIX")
+    
+    # 2. Get VIX context once for the entire run
+    vix_context = await _get_data(f"{TA_API_BASE_URL}/analyze-index/^VIX")
 
-    # 2. Create and run the full data gathering pipeline for all tickers concurrently
+    # 3. Create and run the full analysis pipeline for all tickers concurrently
     analysis_tasks = [
-        _gather_data_for_ticker(ticker, price_lookup, vix_context) 
+        _process_single_ticker(ticker, price_lookup, vix_context) 
         for ticker in tickers_to_analyze
     ]
     
-    final_report_data = await asyncio.gather(*analysis_tasks)
+    final_report = await asyncio.gather(*analysis_tasks)
     
-    return json.dumps(final_report_data, indent=2)
+    return json.dumps(final_report, indent=2)
